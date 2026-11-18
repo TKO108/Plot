@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="ChronoPlot">
     <link rel="icon" type="image/png" href="icon.png">
-    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
     <title>ChronoPlot - 近未来プロット＆エモーション可視化ツール</title>
 
     <!-- Tailwind CSS -->
@@ -36,17 +36,17 @@
                             panel: '#0d1326',
                             card: '#131c36',
                             border: '#1e2d52',
-                            cyan: '#00f0ff',
-                            pink: '#ff007f',
-                            purple: '#9d4edd',
-                            emerald: '#00f59b',
-                            amber: '#ffb703'
+                            cyan: '#38bdf8',
+                            pink: '#f472b6',
+                            purple: '#c084fc',
+                            emerald: '#34d399',
+                            amber: '#fbbf24'
                         }
                     },
                     boxShadow: {
-                        'neon-cyan': '0 0 24px rgba(0, 240, 255, 0.9), inset 0 0 12px rgba(0, 240, 255, 0.4)',
-                        'neon-pink': '0 0 24px rgba(255, 0, 127, 0.9), inset 0 0 12px rgba(255, 0, 127, 0.4)',
-                        'neon-purple': '0 0 24px rgba(157, 78, 221, 0.9)',
+                        'neon-cyan': '-2px 0 12px rgba(244, 114, 182, 0.25), 2px 0 14px rgba(56, 189, 248, 0.28)',
+                        'neon-pink': '0 0 12px rgba(244, 114, 182, 0.35), inset 0 0 5px rgba(192, 132, 252, 0.2)',
+                        'neon-purple': '0 0 14px rgba(192, 132, 252, 0.35)',
                     }
                 }
             }
@@ -56,26 +56,26 @@
     <!-- 外部スタイルシート読み込み -->
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="bg-slate-100 text-slate-800 dark:bg-cyber-bg dark:text-slate-100 font-sans antialiased overflow-hidden h-screen flex flex-col selection:bg-cyan-500 selection:text-white">
+<body class="bg-slate-100 text-slate-800 dark:bg-cyber-bg dark:text-slate-100 font-sans antialiased overflow-hidden h-screen flex flex-col selection:bg-fuchsia-500 selection:text-white">
 
     <!-- ==================== 1. トップヘッダー ==================== -->
     <header class="h-14 border-b border-slate-300 dark:border-cyber-border bg-white/90 dark:bg-cyber-panel/90 backdrop-blur-md px-4 flex items-center justify-between z-30 shrink-0">
         <div class="flex items-center gap-3">
             <!-- ホームへ戻るボタン（ワークスペース表示時のみ表示） -->
-            <button id="btn-back-home" onclick="app.goHome()" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-cyan-300 transition">
+            <button id="btn-back-home" onclick="app.goHome()" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-purple-300 transition">
                 <i class="ph ph-folder-open text-base"></i>
                 <span>物語一覧</span>
             </button>
 
-            <!-- ロゴ（挿入されたアプリアイコンを使用＋未配置時フォールバック付） -->
-            <div class="flex items-center gap-2.5 cursor-pointer" onclick="app.goHome()">
-                <div class="w-9 h-9 rounded-xl overflow-hidden shadow-sm dark:shadow-neon-cyan border border-slate-300 dark:border-cyan-400/50 bg-slate-100 dark:bg-slate-900 flex items-center justify-center shrink-0">
+            <!-- ロゴ（ピンク・パープル・ブルーが幻想的に混ざりキラッと光るフレーム） -->
+            <div class="flex items-center gap-2.5 cursor-pointer group" onclick="app.goHome()">
+                <div class="aurora-icon-frame w-9 h-9 rounded-xl overflow-hidden border border-white/70 dark:border-fuchsia-300/40 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
                     <img src="icon.png" alt="ChronoPlot アイコン" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                    <div class="hidden w-full h-full bg-gradient-to-tr from-cyan-600 to-blue-600 dark:from-cyan-500 dark:to-fuchsia-600 items-center justify-center text-white">
+                    <div class="hidden w-full h-full bg-gradient-to-tr from-pink-500 via-purple-500 to-indigo-500 items-center justify-center text-white">
                         <i class="ph-bold ph-graph text-lg"></i>
                     </div>
                 </div>
-                <span class="font-mono font-bold text-lg tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-cyan-600 to-blue-600 dark:from-cyber-cyan dark:to-cyber-pink">
+                <span class="font-mono font-bold text-lg tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 dark:from-pink-300 dark:via-purple-300 dark:to-sky-300">
                     ChronoPlot
                 </span>
             </div>
@@ -83,15 +83,15 @@
             <!-- 現在の物語タイトル表示（クリックで名前・メモ編集可能） -->
             <div id="header-story-title-wrap" onclick="app.openEditStoryModal()" class="hidden md:flex items-center gap-2 pl-3 border-l border-slate-300 dark:border-slate-700 cursor-pointer group" title="物語の名前・メモを編集">
                 <span class="text-xs text-slate-400">PROJECT:</span>
-                <span id="header-story-title" class="font-bold text-sm truncate max-w-[240px] group-hover:text-cyan-600 dark:group-hover:text-cyber-cyan transition">無題の物語</span>
-                <i class="ph-bold ph-pencil-simple text-xs text-slate-400 group-hover:text-cyan-600 dark:group-hover:text-cyber-cyan transition"></i>
+                <span id="header-story-title" class="font-bold text-sm truncate max-w-[240px] group-hover:text-purple-600 dark:group-hover:text-purple-300 transition">無題の物語</span>
+                <i class="ph-bold ph-pencil-simple text-xs text-slate-400 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition"></i>
             </div>
         </div>
 
         <!-- 右側アクション（テーマ切替） -->
         <div class="flex items-center gap-2">
-            <button onclick="app.toggleTheme()" id="btn-theme-toggle" class="p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 hover:border-cyan-400 transition flex items-center gap-1.5 text-xs font-medium" title="ダーク / ライトモード切替">
-                <i id="theme-icon" class="ph-fill ph-moon-stars text-base text-cyan-400"></i>
+            <button onclick="app.toggleTheme()" id="btn-theme-toggle" class="p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 hover:border-purple-400 transition flex items-center gap-1.5 text-xs font-medium" title="ダーク / ライトモード切替">
+                <i id="theme-icon" class="ph-fill ph-moon-stars text-base text-purple-300"></i>
                 <span id="theme-label" class="hidden sm:inline">NEON DARK</span>
             </button>
         </div>
@@ -103,9 +103,9 @@
             <!-- ヒーローセクション -->
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-slate-300 dark:border-slate-800">
                 <div class="flex items-center gap-3.5">
-                    <div class="w-12 h-12 rounded-2xl overflow-hidden border border-slate-300 dark:border-cyan-500/40 shadow-sm dark:shadow-neon-cyan shrink-0 bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
+                    <div class="aurora-icon-frame w-12 h-12 rounded-2xl overflow-hidden border border-white/70 dark:border-purple-300/40 shrink-0 flex items-center justify-center">
                         <img src="icon.png" alt="ChronoPlot" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                        <div class="hidden w-full h-full items-center justify-center text-cyan-600 dark:text-cyan-400">
+                        <div class="hidden w-full h-full items-center justify-center text-purple-600 dark:text-purple-300">
                             <i class="ph-duotone ph-folders text-3xl"></i>
                         </div>
                     </div>
@@ -118,7 +118,7 @@
                         </p>
                     </div>
                 </div>
-                <button onclick="app.openCreateStoryModal()" class="px-5 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 dark:from-cyan-500 dark:to-blue-600 text-white font-bold text-sm shadow-sm dark:shadow-neon-cyan flex items-center justify-center gap-2 transition transform hover:-translate-y-0.5 shrink-0">
+                <button onclick="app.openCreateStoryModal()" class="px-5 py-3 rounded-xl bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 hover:from-pink-400 hover:via-purple-500 hover:to-indigo-500 text-white font-bold text-sm shadow-sm dark:shadow-neon-purple flex items-center justify-center gap-2 transition transform hover:-translate-y-0.5 shrink-0">
                     <i class="ph-bold ph-folder-plus text-lg"></i>
                     <span>新しい物語を作成</span>
                 </button>
@@ -142,7 +142,7 @@
             </button>
 
             <button onclick="app.toggleDrawer('world')" id="nav-world" class="nav-btn group w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex flex-col items-center justify-center gap-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition relative">
-                <i class="ph-duotone ph-planet text-2xl group-hover:text-cyan-500 dark:group-hover:text-cyber-cyan"></i>
+                <i class="ph-duotone ph-planet text-2xl group-hover:text-sky-500 dark:group-hover:text-sky-400"></i>
                 <span class="text-[10px] font-bold">舞台設定</span>
             </button>
 
@@ -164,7 +164,7 @@
             </button>
 
             <div class="mt-auto">
-                <button onclick="app.toggleGraphPanel()" id="nav-graph-toggle" class="w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex flex-col items-center justify-center gap-1 bg-cyan-500/10 text-cyan-600 dark:text-cyber-cyan border border-cyan-500/30 transition" title="エモーショングラフ表示切替">
+                <button onclick="app.toggleGraphPanel()" id="nav-graph-toggle" class="w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex flex-col items-center justify-center gap-1 bg-purple-500/10 text-purple-600 dark:text-purple-300 border border-purple-500/30 transition" title="エモーショングラフ表示切替">
                     <i class="ph-duotone ph-chart-line-up text-2xl"></i>
                     <span class="text-[9px] font-bold">感情グラフ</span>
                 </button>
@@ -191,7 +191,7 @@
             <div class="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
                 <!-- 左側：モード切替 ＆ Undo / Redo -->
                 <div class="pointer-events-auto flex flex-wrap items-center gap-1.5 bg-white/90 dark:bg-cyber-panel/90 backdrop-blur px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 shadow-lg">
-                    <button id="btn-mode-normal" onclick="app.setCanvasMode('normal')" class="px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition bg-cyan-500 text-slate-950" title="白紙の移動や付箋のドラッグ移動モード">
+                    <button id="btn-mode-normal" onclick="app.setCanvasMode('normal')" class="px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition bg-gradient-to-r from-pink-500 via-purple-500 to-sky-500 text-white" title="白紙の移動や付箋のドラッグ移動モード">
                         <i class="ph-bold ph-hand-grabbing"></i> <span>移動</span>
                     </button>
                     <button id="btn-mode-select" onclick="app.setCanvasMode('select')" class="px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800" title="付箋をドラッグ囲み・タップで複数選択">
@@ -221,12 +221,12 @@
 
                 <!-- 右側：ズーム表示・階層整列・大きな視点リセットボタン -->
                 <div class="pointer-events-auto flex items-center gap-2 bg-white/90 dark:bg-cyber-panel/90 backdrop-blur px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 shadow-lg">
-                    <span id="zoom-level-label" class="font-mono font-bold text-xs text-cyan-600 dark:text-cyber-cyan px-1" title="ピンチイン・ピンチアウト（またはCtrl+ホイール）で自由に拡大縮小できます">100%</span>
+                    <span id="zoom-level-label" class="font-mono font-bold text-xs text-purple-600 dark:text-purple-300 px-1" title="ピンチイン・ピンチアウト（またはCtrl+ホイール）で自由に拡大縮小できます">100%</span>
                     <div class="w-[1px] h-4 bg-slate-300 dark:bg-slate-700"></div>
                     <button onclick="app.autoAlignCanvas()" class="px-2.5 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-bold flex items-center gap-1 text-slate-700 dark:text-slate-200" title="大筋を最上段、キャラナンバー順に階層整列">
-                        <i class="ph-bold ph-magic-wand text-cyan-500"></i> <span class="hidden sm:inline">番号順に整列</span>
+                        <i class="ph-bold ph-magic-wand text-purple-500 dark:text-purple-300"></i> <span class="hidden sm:inline">番号順に整列</span>
                     </button>
-                    <button onclick="app.resetCanvasScroll()" class="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 dark:bg-cyber-cyan text-white dark:text-slate-950 font-bold text-xs sm:text-sm shadow-neon-cyan flex items-center gap-1.5 transition" title="付箋がある基準位置へ視点を戻す">
+                    <button onclick="app.resetCanvasScroll()" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 hover:from-pink-400 hover:via-purple-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-sm dark:shadow-neon-purple flex items-center gap-1.5 transition" title="付箋がある基準位置へ視点を戻す">
                         <i class="ph-bold ph-crosshair text-base"></i> <span>視点リセット</span>
                     </button>
                 </div>
@@ -240,16 +240,16 @@
                         <svg id="connections-svg" class="absolute inset-0 w-full h-full pointer-events-none z-0">
                             <defs>
                                 <marker id="arrow-cyan" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-                                    <path d="M0,0 L0,6 L9,3 z" fill="#00f0ff" />
+                                    <path d="M0,0 L0,6 L9,3 z" fill="#38bdf8" />
                                 </marker>
                                 <marker id="arrow-pink" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-                                    <path d="M0,0 L0,6 L9,3 z" fill="#ff007f" />
+                                    <path d="M0,0 L0,6 L9,3 z" fill="#f472b6" />
                                 </marker>
                                 <marker id="arrow-emerald" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-                                    <path d="M0,0 L0,6 L9,3 z" fill="#00f59b" />
+                                    <path d="M0,0 L0,6 L9,3 z" fill="#34d399" />
                                 </marker>
                                 <marker id="arrow-amber" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-                                    <path d="M0,0 L0,6 L9,3 z" fill="#ffb703" />
+                                    <path d="M0,0 L0,6 L9,3 z" fill="#fbbf24" />
                                 </marker>
                                 <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
                                     <path d="M0,0 L0,6 L9,3 z" fill="#c084fc" />
@@ -259,7 +259,7 @@
                         </svg>
 
                         <!-- 範囲選択（マーキー）ボックス -->
-                        <div id="selection-marquee" class="hidden absolute border-2 border-cyan-400 bg-cyan-400/15 rounded-lg pointer-events-none z-30"></div>
+                        <div id="selection-marquee" class="hidden absolute border-2 border-purple-400 bg-purple-400/15 rounded-lg pointer-events-none z-30"></div>
 
                         <!-- 付箋配置コンテナ -->
                         <div id="stickies-layer" class="relative z-10 w-full h-full">
@@ -274,14 +274,14 @@
                 <!-- グラフヘッダー -->
                 <div class="px-4 py-2 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
                     <div class="flex items-center gap-2">
-                        <i class="ph-duotone ph-pulse text-cyan-500 dark:text-cyber-cyan text-lg"></i>
+                        <i class="ph-duotone ph-pulse text-purple-500 dark:text-purple-300 text-lg"></i>
                         <span class="font-bold text-xs sm:text-sm tracking-wide">エモーションレベル推移 (-100 〜 +100)</span>
                     </div>
 
                     <div class="flex items-center gap-2">
                         <!-- 総合 / 単体（キャラ別・大筋）切替 -->
                         <label for="graph-filter-select" class="text-[11px] text-slate-400 hidden sm:inline">表示対象:</label>
-                        <select id="graph-filter-select" onchange="app.renderEmotionGraph()" class="text-xs font-semibold rounded-lg px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:outline-none focus:border-cyan-500">
+                        <select id="graph-filter-select" onchange="app.renderEmotionGraph()" class="text-xs font-semibold rounded-lg px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:outline-none focus:border-purple-500">
                             <option value="all">総合（すべて表示）</option>
                             <option value="main">単体：大筋のみ</option>
                         </select>
