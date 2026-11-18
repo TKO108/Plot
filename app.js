@@ -516,7 +516,7 @@ class ChronoPlotApp {
             const stickyCount = story.stickies.length;
             const charCount = story.characters.length;
             return `
-                <div onclick="app.openStory('${story.id}')" class="group cursor-pointer rounded-2xl bg-white dark:bg-cyber-panel border border-slate-300 dark:border-cyber-border hover:border-cyan-500 dark:hover:border-cyber-cyan p-5 shadow-sm hover:shadow-neon-cyan transition-all duration-200 flex flex-col justify-between relative overflow-hidden">
+                <div onclick="app.openStory('${story.id}')" class="group cursor-pointer rounded-2xl bg-white dark:bg-cyber-panel border border-slate-300 dark:border-cyber-border hover:border-cyan-500 dark:hover:border-cyber-cyan p-5 shadow-sm hover:shadow-md dark:hover:shadow-neon-cyan transition-all duration-200 flex flex-col justify-between relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-fuchsia-500 opacity-70 group-hover:opacity-100"></div>
 
                     <div>
@@ -524,9 +524,14 @@ class ChronoPlotApp {
                             <div class="w-11 h-11 rounded-xl bg-cyan-500/10 dark:bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-600 dark:text-cyber-cyan">
                                 <i class="ph-duotone ph-folder-star text-2xl"></i>
                             </div>
-                            <button onclick="event.stopPropagation(); app.confirmDeleteStory('${story.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition" title="物語を削除">
-                                <i class="ph ph-trash text-base"></i>
-                            </button>
+                            <div class="flex items-center gap-1">
+                                <button onclick="event.stopPropagation(); app.openEditStoryModal('${story.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyber-cyan hover:bg-cyan-500/10 transition" title="物語の名前・メモを編集">
+                                    <i class="ph-bold ph-pencil-simple text-base"></i>
+                                </button>
+                                <button onclick="event.stopPropagation(); app.confirmDeleteStory('${story.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition" title="物語を削除">
+                                    <i class="ph ph-trash text-base"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <h3 class="font-bold text-lg text-slate-800 dark:text-white group-hover:text-cyan-600 dark:group-hover:text-cyber-cyan transition line-clamp-1">
@@ -607,6 +612,71 @@ class ChronoPlotApp {
         this.closeModal();
         this.openStory(newStory.id);
         this.showToast(`「${title}」を作成しました`);
+    }
+
+    openEditStoryModal(storyId = null) {
+        const targetId = storyId || this.state.currentStoryId;
+        const story = this.state.stories.find(s => s.id === targetId);
+        if (!story) return;
+
+        this.openModal(`
+            <div class="flex items-center justify-between">
+                <h3 class="font-bold text-lg flex items-center gap-2">
+                    <i class="ph-duotone ph-pencil-simple text-cyan-500 text-2xl"></i>
+                    <span>物語の名前・メモを編集</span>
+                </h3>
+                <button onclick="app.closeModal()" class="p-1 text-slate-400 hover:text-slate-200"><i class="ph-bold ph-x"></i></button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">物語タイトル <span class="text-rose-500">*</span></label>
+                    <input id="input-edit-story-title" type="text" value="${this.escapeHtml(story.title)}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">簡単なコンセプト・メモ（任意）</label>
+                    <textarea id="input-edit-story-desc" rows="3" placeholder="例：少年が失われた時計塔の秘密を追う冒険譚" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none text-sm">${this.escapeHtml(story.description || '')}</textarea>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="app.closeModal()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700">キャンセル</button>
+                <button onclick="app.saveEditedStory('${story.id}')" class="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-600 to-blue-600 dark:from-cyan-500 dark:to-blue-600 text-white shadow-sm dark:shadow-neon-cyan">変更を保存</button>
+            </div>
+        `);
+        setTimeout(() => document.getElementById('input-edit-story-title')?.focus(), 50);
+    }
+
+    saveEditedStory(storyId) {
+        const story = this.state.stories.find(s => s.id === storyId);
+        if (!story) return;
+
+        const titleInput = document.getElementById('input-edit-story-title');
+        const descInput = document.getElementById('input-edit-story-desc');
+        const newTitle = titleInput.value.trim();
+        const newDesc = descInput.value.trim();
+
+        if (!newTitle) {
+            this.showToast('物語タイトルを入力してください', 'error');
+            return;
+        }
+
+        if (this.state.currentStoryId === storyId) {
+            this.pushHistory();
+        }
+
+        story.title = newTitle;
+        story.description = newDesc;
+        story.updatedAt = new Date().toLocaleDateString('ja-JP');
+
+        this.saveData();
+        this.closeModal();
+
+        if (this.state.currentStoryId === storyId) {
+            const headerTitle = document.getElementById('header-story-title');
+            if (headerTitle) headerTitle.textContent = newTitle;
+        } else {
+            this.renderHome();
+        }
+        this.showToast('物語の名前・メモを更新しました');
     }
 
     confirmDeleteStory(storyId) {
