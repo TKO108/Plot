@@ -1,1070 +1,1913 @@
-class ChronoPlotApp {
-    constructor() {
-        this.STORAGE_KEY = 'chronoplot_stories_v1';
+/* ==========================================
+   ChronoPlot Core Application Logic
+========================================== */
 
-        // プリセットカラー定義
-        this.COLORS = {
-            cyan: { id: 'cyan', name: 'ネオンシアン', hex: '#00f0ff', bgDark: 'rgba(0, 240, 255, 0.14)', borderDark: 'rgba(0, 240, 255, 0.65)', marker: 'url(#arrow-cyan)' },
-            pink: { id: 'pink', name: 'サイバーピンク', hex: '#ff007f', bgDark: 'rgba(255, 0, 127, 0.14)', borderDark: 'rgba(255, 0, 127, 0.65)', marker: 'url(#arrow-pink)' },
-            emerald: { id: 'emerald', name: 'エメラルド', hex: '#00f59b', bgDark: 'rgba(0, 245, 155, 0.14)', borderDark: 'rgba(0, 245, 155, 0.65)', marker: 'url(#arrow-emerald)' },
-            amber: { id: 'amber', name: 'アンバーゴールド', hex: '#ffb703', bgDark: 'rgba(255, 183, 3, 0.15)', borderDark: 'rgba(255, 183, 3, 0.65)', marker: 'url(#arrow-amber)' },
-            purple: { id: 'purple', name: 'ネオンパープル', hex: '#c084fc', bgDark: 'rgba(192, 132, 252, 0.15)', borderDark: 'rgba(192, 132, 252, 0.65)', marker: 'url(#arrow-purple)' },
-            rose: { id: 'rose', name: 'クリムゾン', hex: '#fb7185', bgDark: 'rgba(251, 113, 133, 0.15)', borderDark: 'rgba(251, 113, 133, 0.65)', marker: 'url(#arrow-pink)' }
-        };
+const STORAGE_KEY = 'chronoplot_projects_v1';
+const THEME_KEY = 'chronoplot_theme_v1';
 
-        // 無限キャンバスの基準オフセット
-        this.BOARD_ORIGIN = 2000;
+// プリセットカラーパレット（重複防止チェック対応）
+const COLOR_PALETTE = [
+    '#ec4899', // Pink
+    '#8b5cf6', // Purple
+    '#6366f1', // Indigo
+    '#38bdf8', // Sky
+    '#10b981', // Emerald
+    '#f59e0b', // Amber
+    '#f43f5e', // Rose
+    '#14b8a6', // Teal
+    '#a855f7', // Violet
+    '#3b82f6', // Blue
+    '#eab308', // Yellow
+    '#fb7185'  // Coral
+];
 
-        this.state = {
-            stories: [],
-            currentStoryId: null,
-            activeDrawer: null, // 'template' | 'world' | 'characters' | 'stickies' | null
-            selectedCharId: null,
-            stickyFolderFilter: 'all', // 'all' | 'main' | charId
-            isConnectMode: false,
-            connectSourceId: null,
-            isGraphVisible: true,
-            theme: 'dark',
-            zoom: 1.0,
-            boardWidth: 5000,
-            boardHeight: 5000,
-            canvasMode: 'normal', // 'normal' | 'select'
-            selectedStickyIds: [],
-            pendingCharColorHex: null,
-            pendingMainColorHex: null,
-            historyPast: [],
-            historyFuture: []
-        };
-
-        this.dragInfo = {
-            isDragging: false,
-            items: [],
-            startMouseX: 0,
-            startMouseY: 0,
-            moved: false
-        };
-
-        this.marqueeInfo = {
-            isSelecting: false,
-            startX: 0,
-            startY: 0
-        };
-
-        this.pinchInfo = {
-            isPinching: false,
-            initialDistance: 0,
-            initialZoom: 1.0
-        };
-
-        this.panInfo = {
-            isPanning: false,
-            startX: 0,
-            startY: 0,
-            origScrollLeft: 0,
-            origScrollTop: 0,
-            moved: false
-        };
-
-        this.init();
+// PSLOC解説定義
+const PSLOC_DEFINITIONS = {
+    L: {
+        title: 'L：欠落（Lack）とは？',
+        body: '主人公の活動や動機、葛藤の源泉となる「欠けているもの・満たされない思い」です。物語を通じて主人公が何を求め、なぜ行動するのかの原動力になります。'
+    },
+    O: {
+        title: 'O：障害（Obstacle）とは？',
+        body: '主人公の目的達成を阻む「具体的な事象・物・人物・環境」です。物語の緊張感や対立を生み出す壁となります。'
+    },
+    C: {
+        title: 'C：変化（Change）とは？',
+        body: '物語の最初と最後で、主人公や周囲の状況が「どのように変わっているか」です。成長・変質・価値観の転換など、物語の結末の核心を示します。'
     }
+};
 
-    // ==================== 初期化・データ管理 ====================
-    init() {
-        this.loadData();
-        if (this.state.stories.length === 0) {
-            this.seedSampleStory();
+// アプリ全体状態
+let projects = [];
+let currentProjectId = null;
+let activeDrawer = null;
+let activeCharacterId = null;
+let noteFolderFilter = 'all';
+
+// キャンバス操作状態
+let canvasMode = 'move'; // 'move' | 'select' | 'connect'
+let selectedNoteIds = new Set();
+let connectSourceNoteId = null;
+
+// ビューポート（パン・ズーム）
+let viewScale = 1;
+let viewX = -2400;
+let viewY = -2500;
+let isPanning = false;
+let panStartX = 0;
+let panStartY = 0;
+
+// 付箋ドラッグ状態
+let draggingNoteId = null;
+let dragStartMouseX = 0;
+let dragStartMouseY = 0;
+let dragInitialPositions = new Map();
+let hasDraggedMoved = false;
+
+// ピンチズーム状態
+let initialPinchDistance = null;
+let initialPinchScale = 1;
+
+// Undo / Redo スタック
+let undoStack = [];
+let redoStack = [];
+const MAX_HISTORY = 40;
+
+// グラフ状態
+let isGraphVisible = true;
+let graphMode = 'all'; // 'all' | 'single'
+
+// ==========================================
+// 初期化
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
+    loadProjects();
+    renderHomeView();
+    setupCanvasEvents();
+    setupKeyboardShortcuts();
+    lucide.createIcons();
+});
+
+function initTheme() {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light') {
+        document.documentElement.classList.remove('dark');
+    } else {
+        document.documentElement.classList.add('dark');
+    }
+}
+
+function toggleTheme() {
+    const isDark = document.documentElement.classList.toggle('dark');
+    localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
+    if (currentProjectId) {
+        renderEmotionGraph();
+    }
+}
+
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    const msgEl = document.getElementById('toast-msg');
+    msgEl.textContent = msg;
+    toast.classList.remove('opacity-0', 'translate-y-[-10px]');
+    toast.classList.add('opacity-100', 'translate-y-0');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-[-10px]');
+        toast.classList.remove('opacity-100', 'translate-y-0');
+    }, 2200);
+}
+
+// ==========================================
+// データ永続化 & プロジェクト構造
+// ==========================================
+function loadProjects() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        projects = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        projects = [];
+    }
+}
+
+function saveProjects() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+}
+
+function getCurrentProject() {
+    return projects.find(p => p.id === currentProjectId) || null;
+}
+
+function createDefaultProject(title, memo) {
+    return {
+        id: 'proj_' + Date.now(),
+        title: title || '無題の物語',
+        memo: memo || '',
+        updatedAt: Date.now(),
+        outlineColor: '#6366f1',
+        template: {
+            P: '',
+            S: '',
+            L: '',
+            O: '',
+            C: ''
+        },
+        stages: [
+            { id: 'stg_1', title: '時代・世界観', content: '' },
+            { id: 'stg_2', title: '主な舞台・場所', content: '' }
+        ],
+        characters: [],
+        notes: [],
+        connections: []
+    };
+}
+
+// ==========================================
+// Undo / Redo 履歴管理
+// ==========================================
+function pushHistory() {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    undoStack.push(JSON.stringify(proj));
+    if (undoStack.length > MAX_HISTORY) {
+        undoStack.shift();
+    }
+    redoStack = [];
+    updateHistoryButtons();
+}
+
+function undo() {
+    if (undoStack.length === 0) return;
+    const proj = getCurrentProject();
+    if (!proj) return;
+    redoStack.push(JSON.stringify(proj));
+    const prev = JSON.parse(undoStack.pop());
+    const idx = projects.findIndex(p => p.id === currentProjectId);
+    if (idx !== -1) projects[idx] = prev;
+    saveProjects();
+    refreshWorkspaceUI();
+    updateHistoryButtons();
+    showToast('操作を元に戻しました');
+}
+
+function redo() {
+    if (redoStack.length === 0) return;
+    const proj = getCurrentProject();
+    if (!proj) return;
+    undoStack.push(JSON.stringify(proj));
+    const next = JSON.parse(redoStack.pop());
+    const idx = projects.findIndex(p => p.id === currentProjectId);
+    if (idx !== -1) projects[idx] = next;
+    saveProjects();
+    refreshWorkspaceUI();
+    updateHistoryButtons();
+    showToast('操作をやり直しました');
+}
+
+function updateHistoryButtons() {
+    const uBtn = document.getElementById('btn-undo');
+    const rBtn = document.getElementById('btn-redo');
+    if (uBtn) uBtn.disabled = undoStack.length === 0;
+    if (rBtn) rBtn.disabled = redoStack.length === 0;
+}
+
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        if (!currentProjectId) return;
+        const tag = e.target.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+            e.preventDefault();
+            if (e.shiftKey) redo();
+            else undo();
+        } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+            e.preventDefault();
+            redo();
         }
-        this.setupCanvasInteractions();
-        this.setupKeyboardShortcuts();
-        this.renderHome();
+    });
+}
 
-        window.addEventListener('resize', () => {
-            if (this.state.currentStoryId && this.state.isGraphVisible) {
-                this.renderEmotionGraph();
-            }
-        });
-    }
+// ==========================================
+// HOME VIEW（プロジェクト一覧・作成・編集・削除）
+// ==========================================
+function renderHomeView() {
+    const grid = document.getElementById('project-grid');
+    const countEl = document.getElementById('project-count');
+    countEl.textContent = `${projects.length} PROJECT${projects.length === 1 ? '' : 'S'}`;
 
-    loadData() {
-        try {
-            const raw = localStorage.getItem(this.STORAGE_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) {
-                    this.state.stories = parsed;
-                }
-            }
-        } catch (e) {
-            console.warn('データの読み込みに失敗しました:', e);
-        }
-    }
-
-    saveData() {
-        try {
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.state.stories));
-        } catch (e) {
-            console.warn('データの保存に失敗しました（容量上限などの可能性があります）:', e);
-        }
-    }
-
-    seedSampleStory() {
-        const sampleId = 'story_sample_01';
-        const char1Id = 'char_sample_01';
-        const char2Id = 'char_sample_02';
-        const ox = this.BOARD_ORIGIN;
-        const oy = this.BOARD_ORIGIN;
-
-        this.state.stories = [
-            {
-                id: sampleId,
-                title: '星屑のクロニクル（サンプル）',
-                description: '記憶を失った少女と機械仕掛けの騎士が、滅びゆく軌道都市の謎を解き明かすSFファンタジー。',
-                updatedAt: new Date().toLocaleDateString('ja-JP'),
-                mainColor: 'cyan',
-                simpleTemplate: {
-                    p: '記憶を失った調律師の少女・ルナ',
-                    s: '崩壊しつつある軌道都市「アルカディア」',
-                    l: '自分が何者で、なぜ都市のコアと共鳴できるのか分からない喪失感',
-                    o: '都市の初期化を目論む中枢AIと、暴走する防衛機構',
-                    c: '過去の記憶を取り戻した上で、失われた過去ではなく未来の仲間を守る決断をする'
-                },
-                worldSettings: [
-                    { id: 'ws_1', title: '世界観・舞台', content: '雲海の上に浮かぶ巨大リング都市「アルカディア」。旧文明の遺物である星晶炉によって維持されている。' },
-                    { id: 'ws_2', title: '種族・技術', content: '人間と自律思考型アンドロイド「機人」が共存。記憶を結晶化する「メモリア技術」が存在する。' },
-                    { id: 'ws_3', title: '物語の成り立ち', content: '100年前の大崩落以来、外の世界との連絡が途絶え、都市のエネルギー残量が限界を迎えつつある。' }
-                ],
-                characters: [
-                    {
-                        id: char1Id,
-                        number: 1,
-                        name: 'ルナ',
-                        color: 'pink',
-                        image: null,
-                        sections: [
-                            { id: 'cs_1', title: 'キャラクター名', content: 'ルナ（Luna）' },
-                            { id: 'cs_2', title: '性別', content: '女性' },
-                            { id: 'cs_3', title: '種族', content: '人間（記憶喪失の調律師）' },
-                            { id: 'cs_4', title: '年齢', content: '16歳' },
-                            { id: 'cs_5', title: '身長', content: '156cm' },
-                            { id: 'cs_6', title: '職業', content: '星晶の調律師見習い' },
-                            { id: 'cs_7', title: '特徴', content: '機械の声を聴く不思議な力を持つ。お人好しだが芯が強い。' }
-                        ]
-                    },
-                    {
-                        id: char2Id,
-                        number: 2,
-                        name: 'カイン',
-                        color: 'emerald',
-                        image: null,
-                        sections: [
-                            { id: 'cs_21', title: 'キャラクター名', content: 'カイン（Cain）' },
-                            { id: 'cs_22', title: '性別', content: '男性型' },
-                            { id: 'cs_23', title: '種族', content: '旧世代型機人（アンドロイド）' },
-                            { id: 'cs_24', title: '年齢', content: '外見19歳（稼働120年）' },
-                            { id: 'cs_25', title: '身長', content: '182cm' },
-                            { id: 'cs_26', title: '職業', content: '遺跡警備騎士' },
-                            { id: 'cs_27', title: '特徴', content: '冷静沈着で無口だが、ルナを守るためなら論理を超えた行動をとる。' }
-                        ]
-                    }
-                ],
-                stickies: [
-                    { id: 'st_1', number: 1, targetType: 'main', targetId: 'main', emotion: 10, content: '日常の崩壊：都市の外壁が崩れ、謎の飛行艇が墜落してくる。', placed: true, x: ox + 60, y: oy + 90 },
-                    { id: 'st_2', number: 2, targetType: 'main', targetId: 'main', emotion: 45, content: '運命の出会い：墜落現場で眠っていた機人カインとルナが共鳴する。', placed: true, x: ox + 340, y: oy + 90 },
-                    { id: 'st_3', number: 3, targetType: 'main', targetId: 'main', emotion: -75, content: '絶望の真相：都市の維持にはルナ自身の記憶結晶が必要だと判明する。', placed: true, x: ox + 620, y: oy + 90 },
-                    { id: 'st_4', number: 4, targetType: 'main', targetId: 'main', emotion: 90, content: '希望の選択：仲間と共に新たなエネルギー源を起動し、空へ旅立つ。', placed: true, x: ox + 900, y: oy + 90 },
-                    { id: 'st_5', number: 1, targetType: 'character', targetId: char1Id, emotion: -20, content: '自分の過去が分からず孤独を感じながらも、人々を助けようと奔走する。', placed: true, x: ox + 60, y: oy + 320 },
-                    { id: 'st_6', number: 2, targetType: 'character', targetId: char1Id, emotion: 65, content: 'カインに背中を押され、自分の意志で運命を切り開く覚悟を決める。', placed: true, x: ox + 340, y: oy + 320 },
-                    { id: 'st_7', number: 1, targetType: 'character', targetId: char2Id, emotion: 0, content: '命令通りルナを保護するが、感情プログラムの揺らぎに戸惑う。', placed: true, x: ox + 60, y: oy + 550 },
-                    { id: 'st_8', number: 2, targetType: 'character', targetId: char2Id, emotion: -50, content: '機能停止寸前まで傷つきながらも、盾となってルナを守り抜く。', placed: true, x: ox + 340, y: oy + 550 }
-                ],
-                connections: [
-                    { id: 'conn_1', from: 'st_1', to: 'st_2' },
-                    { id: 'conn_2', from: 'st_2', to: 'st_3' },
-                    { id: 'conn_3', from: 'st_3', to: 'st_4' },
-                    { id: 'conn_4', from: 'st_5', to: 'st_6' },
-                    { id: 'conn_5', from: 'st_7', to: 'st_8' }
-                ]
-            }
-        ];
-        this.saveData();
-    }
-
-    getCurrentStory() {
-        return this.state.stories.find(s => s.id === this.state.currentStoryId) || null;
-    }
-
-    // ==================== アンドゥ / リドゥ（履歴管理） ====================
-    pushHistory() {
-        const story = this.getCurrentStory();
-        if (!story) return;
-        const snapshot = JSON.stringify({
-            title: story.title,
-            description: story.description,
-            mainColor: story.mainColor || 'cyan',
-            simpleTemplate: story.simpleTemplate || { p: '', s: '', l: '', o: '', c: '' },
-            worldSettings: story.worldSettings,
-            characters: story.characters,
-            stickies: story.stickies,
-            connections: story.connections
-        });
-        if (this.state.historyPast.length > 0 && this.state.historyPast[this.state.historyPast.length - 1] === snapshot) {
-            return;
-        }
-        this.state.historyPast.push(snapshot);
-        if (this.state.historyPast.length > 40) {
-            this.state.historyPast.shift();
-        }
-        this.state.historyFuture = [];
-        this.updateHistoryButtonsUI();
-    }
-
-    undo() {
-        const story = this.getCurrentStory();
-        if (!story || this.state.historyPast.length === 0) return;
-
-        const currentSnapshot = JSON.stringify({
-            title: story.title,
-            description: story.description,
-            mainColor: story.mainColor || 'cyan',
-            simpleTemplate: story.simpleTemplate || { p: '', s: '', l: '', o: '', c: '' },
-            worldSettings: story.worldSettings,
-            characters: story.characters,
-            stickies: story.stickies,
-            connections: story.connections
-        });
-        this.state.historyFuture.push(currentSnapshot);
-
-        const prevSnapshot = JSON.parse(this.state.historyPast.pop());
-        Object.assign(story, prevSnapshot);
-        this.state.selectedStickyIds = [];
-        this.state.pendingCharColorHex = null;
-        this.state.pendingMainColorHex = null;
-
-        this.saveData();
-        this.updateHistoryButtonsUI();
-        this.updateGraphFilterOptions();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        if (this.state.activeDrawer) this.renderDrawer();
-        this.showToast('操作を元に戻しました');
-    }
-
-    redo() {
-        const story = this.getCurrentStory();
-        if (!story || this.state.historyFuture.length === 0) return;
-
-        const currentSnapshot = JSON.stringify({
-            title: story.title,
-            description: story.description,
-            mainColor: story.mainColor || 'cyan',
-            simpleTemplate: story.simpleTemplate || { p: '', s: '', l: '', o: '', c: '' },
-            worldSettings: story.worldSettings,
-            characters: story.characters,
-            stickies: story.stickies,
-            connections: story.connections
-        });
-        this.state.historyPast.push(currentSnapshot);
-
-        const nextSnapshot = JSON.parse(this.state.historyFuture.pop());
-        Object.assign(story, nextSnapshot);
-        this.state.selectedStickyIds = [];
-        this.state.pendingCharColorHex = null;
-        this.state.pendingMainColorHex = null;
-
-        this.saveData();
-        this.updateHistoryButtonsUI();
-        this.updateGraphFilterOptions();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        if (this.state.activeDrawer) this.renderDrawer();
-        this.showToast('操作をやり直しました');
-    }
-
-    updateHistoryButtonsUI() {
-        const undoBtn = document.getElementById('btn-undo');
-        const redoBtn = document.getElementById('btn-redo');
-        if (undoBtn) undoBtn.disabled = this.state.historyPast.length === 0;
-        if (redoBtn) redoBtn.disabled = this.state.historyFuture.length === 0;
-    }
-
-    setupKeyboardShortcuts() {
-        window.addEventListener('keydown', (e) => {
-            if (!this.state.currentStoryId) return;
-            const tag = e.target.tagName.toLowerCase();
-            if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-                e.preventDefault();
-                if (e.shiftKey) {
-                    this.redo();
-                } else {
-                    this.undo();
-                }
-            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-                e.preventDefault();
-                this.redo();
-            }
-        });
-    }
-
-    // ==================== カラー重複判定・自由選択ヘルパー ====================
-    normalizeHex(colorValue) {
-        if (!colorValue) return '#00f0ff';
-        if (this.COLORS[colorValue]) {
-            return this.COLORS[colorValue].hex.toLowerCase();
-        }
-        let hex = colorValue.trim().toLowerCase();
-        if (!hex.startsWith('#')) hex = '#' + hex;
-        if (hex.length === 4) {
-            hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
-        }
-        return hex;
-    }
-
-    getColorMeta(colorValue) {
-        if (colorValue && this.COLORS[colorValue]) {
-            return this.COLORS[colorValue];
-        }
-        const hex = this.normalizeHex(colorValue);
-        const r = parseInt(hex.slice(1, 3), 16) || 0;
-        const g = parseInt(hex.slice(3, 5), 16) || 240;
-        const b = parseInt(hex.slice(5, 7), 16) || 255;
-        return {
-            id: hex,
-            name: `カスタム (${hex.toUpperCase()})`,
-            hex: hex,
-            bgDark: `rgba(${r}, ${g}, ${b}, 0.16)`,
-            borderDark: `rgba(${r}, ${g}, ${b}, 0.72)`,
-            marker: null
-        };
-    }
-
-    isColorInUse(colorValue, exclude = {}) {
-        const story = this.getCurrentStory();
-        if (!story) return false;
-        const targetHex = this.normalizeHex(colorValue);
-
-        if (exclude.type !== 'main') {
-            const mainHex = this.normalizeHex(story.mainColor || 'cyan');
-            if (mainHex === targetHex) return true;
-        }
-
-        for (const char of story.characters) {
-            if (exclude.type === 'character' && exclude.id === char.id) continue;
-            if (this.normalizeHex(char.color) === targetHex) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    getFirstAvailableColorKey() {
-        for (const key of Object.keys(this.COLORS)) {
-            if (!this.isColorInUse(key)) {
-                return key;
-            }
-        }
-        let randHex = '#38bdf8';
-        for (let i = 0; i < 30; i++) {
-            const h = Math.floor(Math.random() * 360);
-            randHex = this.hslToHex(h, 85, 60);
-            if (!this.isColorInUse(randHex)) break;
-        }
-        return randHex;
-    }
-
-    hslToHex(h, s, l) {
-        l /= 100;
-        const a = s * Math.min(l, 1 - l) / 100;
-        const f = n => {
-            const k = (n + h / 30) % 12;
-            const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-            return Math.round(255 * color).toString(16).padStart(2, '0');
-        };
-        return `#${f(0)}${f(8)}${f(4)}`;
-    }
-
-    // ==================== 画面遷移（ホーム ⇔ フォルダ内） ====================
-    goHome() {
-        this.flushTemplateInputs();
-        this.saveData();
-        this.state.currentStoryId = null;
-        this.state.activeDrawer = null;
-        this.state.isConnectMode = false;
-        this.state.connectSourceId = null;
-        this.state.selectedStickyIds = [];
-        this.state.historyPast = [];
-        this.state.historyFuture = [];
-
-        document.getElementById('view-home').classList.remove('hidden');
-        document.getElementById('view-workspace').classList.add('hidden');
-        document.getElementById('btn-back-home').classList.add('hidden');
-        document.getElementById('btn-back-home').classList.remove('flex');
-        document.getElementById('header-story-title-wrap').classList.add('hidden');
-        document.getElementById('side-drawer').classList.add('hidden');
-
-        this.renderHome();
-    }
-
-    openStory(storyId) {
-        const story = this.state.stories.find(s => s.id === storyId);
-        if (!story) return;
-
-        if (!story.mainColor) story.mainColor = 'cyan';
-        if (!story.simpleTemplate) {
-            story.simpleTemplate = { p: '', s: '', l: '', o: '', c: '' };
-        }
-
-        // キャラクターナンバーの補完
-        story.characters.forEach((c, idx) => {
-            if (typeof c.number !== 'number' || isNaN(c.number)) {
-                c.number = idx + 1;
-            }
-        });
-
-        // 旧座標データの基準オフセット移行
-        const minX = story.stickies.reduce((min, s) => Math.min(min, s.x), Infinity);
-        const minY = story.stickies.reduce((min, s) => Math.min(min, s.y), Infinity);
-        if (story.stickies.length > 0 && (minX < 800 || minY < 800)) {
-            story.stickies.forEach(s => {
-                s.x += this.BOARD_ORIGIN;
-                s.y += this.BOARD_ORIGIN;
-            });
-        }
-
-        this.state.currentStoryId = storyId;
-        this.state.activeDrawer = null;
-        this.state.selectedCharId = story.characters[0]?.id || null;
-        this.state.stickyFolderFilter = 'all';
-        this.state.isConnectMode = false;
-        this.state.connectSourceId = null;
-        this.state.zoom = 1.0;
-        this.state.boardWidth = 5000;
-        this.state.boardHeight = 5000;
-        this.state.canvasMode = 'normal';
-        this.state.selectedStickyIds = [];
-        this.state.pendingCharColorHex = null;
-        this.state.pendingMainColorHex = null;
-        this.state.historyPast = [];
-        this.state.historyFuture = [];
-
-        document.getElementById('view-home').classList.add('hidden');
-        document.getElementById('view-workspace').classList.remove('hidden');
-        document.getElementById('btn-back-home').classList.remove('hidden');
-        document.getElementById('btn-back-home').classList.add('flex');
-        document.getElementById('header-story-title-wrap').classList.remove('hidden');
-        document.getElementById('header-story-title').textContent = story.title;
-        document.getElementById('side-drawer').classList.add('hidden');
-
-        this.updateNavHighlight();
-        this.updateConnectModeUI();
-        this.updateModeButtonsUI();
-        this.updateHistoryButtonsUI();
-        this.updateGraphFilterOptions();
-        this.applyZoom(1.0);
-        this.renderCanvas();
-        this.renderEmotionGraph();
-
-        requestAnimationFrame(() => {
-            this.resetCanvasScroll(true);
-        });
-    }
-
-    // ==================== テーマ切替（ダーク / ライト） ====================
-    toggleTheme() {
-        const html = document.documentElement;
-        const viewport = document.getElementById('canvas-viewport');
-        const icon = document.getElementById('theme-icon');
-        const label = document.getElementById('theme-label');
-
-        if (this.state.theme === 'dark') {
-            this.state.theme = 'light';
-            html.classList.remove('dark');
-            viewport.classList.remove('canvas-grid-dark');
-            viewport.classList.add('canvas-grid-light');
-            icon.className = 'ph-fill ph-sun text-base text-amber-500';
-            label.textContent = 'LIGHT MODE';
-        } else {
-            this.state.theme = 'dark';
-            html.classList.add('dark');
-            viewport.classList.remove('canvas-grid-light');
-            viewport.classList.add('canvas-grid-dark');
-            icon.className = 'ph-fill ph-moon-stars text-base text-cyan-400';
-            label.textContent = 'NEON DARK';
-        }
-
-        if (this.state.currentStoryId) {
-            this.renderCanvas();
-            this.renderEmotionGraph();
-        }
-    }
-
-    // ==================== ホーム画面描画＆物語フォルダ作成 ====================
-    renderHome() {
-        const grid = document.getElementById('story-folder-grid');
-        if (this.state.stories.length === 0) {
-            grid.innerHTML = `
-                <div class="col-span-full py-16 text-center rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-800">
-                    <i class="ph-duotone ph-folder-dashed text-5xl text-slate-400 mb-3"></i>
-                    <p class="text-slate-500 dark:text-slate-400 font-medium">まだ物語フォルダがありません。「新しい物語を作成」から始めましょう。</p>
-                </div>
-            `;
-            return;
-        }
-
-        grid.innerHTML = this.state.stories.map(story => {
-            const stickyCount = story.stickies.length;
-            const charCount = story.characters.length;
-            return `
-                <div onclick="app.openStory('${story.id}')" class="group cursor-pointer rounded-2xl bg-white dark:bg-cyber-panel border border-slate-300 dark:border-cyber-border hover:border-cyan-500 dark:hover:border-cyber-cyan p-5 shadow-sm hover:shadow-md dark:hover:shadow-neon-cyan transition-all duration-200 flex flex-col justify-between relative overflow-hidden">
-                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-fuchsia-500 opacity-70 group-hover:opacity-100"></div>
-
-                    <div>
-                        <div class="flex items-start justify-between gap-2 mb-3">
-                            <div class="w-11 h-11 rounded-xl bg-cyan-500/10 dark:bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-600 dark:text-cyber-cyan">
-                                <i class="ph-duotone ph-folder-star text-2xl"></i>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <button onclick="event.stopPropagation(); app.openEditStoryModal('${story.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyber-cyan hover:bg-cyan-500/10 transition" title="物語の名前・メモを編集">
-                                    <i class="ph-bold ph-pencil-simple text-base"></i>
-                                </button>
-                                <button onclick="event.stopPropagation(); app.confirmDeleteStory('${story.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition" title="物語を削除">
-                                    <i class="ph ph-trash text-base"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <h3 class="font-bold text-lg text-slate-800 dark:text-white group-hover:text-cyan-600 dark:group-hover:text-cyber-cyan transition line-clamp-1">
-                            ${this.escapeHtml(story.title)}
-                        </h3>
-                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1.5 line-clamp-2 min-h-[2rem]">
-                            ${this.escapeHtml(story.description || 'あらすじ・メモ未設定')}
-                        </p>
-                    </div>
-
-                    <div class="mt-5 pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                        <div class="flex items-center gap-3">
-                            <span class="flex items-center gap-1"><i class="ph-fill ph-note text-cyan-500"></i> ${stickyCount}枚</span>
-                            <span class="flex items-center gap-1"><i class="ph-fill ph-users text-pink-500"></i> ${charCount}人</span>
-                        </div>
-                        <span>${story.updatedAt || ''}</span>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    openCreateStoryModal() {
-        this.openModal(`
-            <div class="flex items-center justify-between">
-                <h3 class="font-bold text-lg flex items-center gap-2">
-                    <i class="ph-duotone ph-folder-plus text-cyan-500 text-2xl"></i>
-                    <span>新しい物語を作成</span>
-                </h3>
-                <button onclick="app.closeModal()" class="p-1 text-slate-400 hover:text-slate-200"><i class="ph-bold ph-x"></i></button>
+    if (projects.length === 0) {
+        grid.innerHTML = `
+            <div class="col-span-full py-16 text-center rounded-2xl border-2 border-dashed border-slate-200 dark:border-cyber-border bg-white/50 dark:bg-cyber-panel/50">
+                <i data-lucide="sparkles" class="w-10 h-10 mx-auto text-purple-400 mb-3"></i>
+                <p class="font-bold text-sm">まだ物語プロジェクトがありません</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">右上の「新しい物語を作成」からプロットを始めましょう</p>
+                <button onclick="openProjectModal()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 text-white text-xs font-bold">最初の物語をつくる</button>
             </div>
-            <div class="space-y-3">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">物語タイトル <span class="text-rose-500">*</span></label>
-                    <input id="input-new-story-title" type="text" placeholder="例：蒼穹のメカニカ" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none text-sm">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">簡単なコンセプト・メモ（任意）</label>
-                    <textarea id="input-new-story-desc" rows="3" placeholder="例：少年が失われた時計塔の秘密を追う冒険譚" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none text-sm"></textarea>
-                </div>
-            </div>
-            <div class="flex justify-end gap-2 pt-2">
-                <button onclick="app.closeModal()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700">キャンセル</button>
-                <button onclick="app.createStory()" class="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-neon-cyan">フォルダを作成して開く</button>
-            </div>
-        `);
-        setTimeout(() => document.getElementById('input-new-story-title')?.focus(), 50);
-    }
-
-    createStory() {
-        const titleInput = document.getElementById('input-new-story-title');
-        const descInput = document.getElementById('input-new-story-desc');
-        const title = titleInput.value.trim();
-        if (!title) {
-            this.showToast('物語タイトルを入力してください', 'error');
-            return;
-        }
-
-        const newStory = {
-            id: 'story_' + Date.now(),
-            title: title,
-            description: descInput.value.trim(),
-            updatedAt: new Date().toLocaleDateString('ja-JP'),
-            mainColor: 'cyan',
-            simpleTemplate: { p: '', s: '', l: '', o: '', c: '' },
-            worldSettings: [
-                { id: 'ws_' + Date.now() + '_1', title: '世界観', content: '' },
-                { id: 'ws_' + Date.now() + '_2', title: '種族・組織', content: '' },
-                { id: 'ws_' + Date.now() + '_3', title: '成り立ち・歴史', content: '' }
-            ],
-            characters: [],
-            stickies: [],
-            connections: []
-        };
-
-        this.state.stories.unshift(newStory);
-        this.saveData();
-        this.closeModal();
-        this.openStory(newStory.id);
-        this.showToast(`「${title}」を作成しました`);
-    }
-
-    openEditStoryModal(storyId = null) {
-        const targetId = storyId || this.state.currentStoryId;
-        const story = this.state.stories.find(s => s.id === targetId);
-        if (!story) return;
-
-        this.openModal(`
-            <div class="flex items-center justify-between">
-                <h3 class="font-bold text-lg flex items-center gap-2">
-                    <i class="ph-duotone ph-pencil-simple text-cyan-500 text-2xl"></i>
-                    <span>物語の名前・メモを編集</span>
-                </h3>
-                <button onclick="app.closeModal()" class="p-1 text-slate-400 hover:text-slate-200"><i class="ph-bold ph-x"></i></button>
-            </div>
-            <div class="space-y-3">
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">物語タイトル <span class="text-rose-500">*</span></label>
-                    <input id="input-edit-story-title" type="text" value="${this.escapeHtml(story.title)}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none text-sm">
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">簡単なコンセプト・メモ（任意）</label>
-                    <textarea id="input-edit-story-desc" rows="3" placeholder="例：少年が失われた時計塔の秘密を追う冒険譚" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none text-sm">${this.escapeHtml(story.description || '')}</textarea>
-                </div>
-            </div>
-            <div class="flex justify-end gap-2 pt-2">
-                <button onclick="app.closeModal()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700">キャンセル</button>
-                <button onclick="app.saveEditedStory('${story.id}')" class="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-600 to-blue-600 dark:from-cyan-500 dark:to-blue-600 text-white shadow-sm dark:shadow-neon-cyan">変更を保存</button>
-            </div>
-        `);
-        setTimeout(() => document.getElementById('input-edit-story-title')?.focus(), 50);
-    }
-
-    saveEditedStory(storyId) {
-        const story = this.state.stories.find(s => s.id === storyId);
-        if (!story) return;
-
-        const titleInput = document.getElementById('input-edit-story-title');
-        const descInput = document.getElementById('input-edit-story-desc');
-        const newTitle = titleInput.value.trim();
-        const newDesc = descInput.value.trim();
-
-        if (!newTitle) {
-            this.showToast('物語タイトルを入力してください', 'error');
-            return;
-        }
-
-        if (this.state.currentStoryId === storyId) {
-            this.pushHistory();
-        }
-
-        story.title = newTitle;
-        story.description = newDesc;
-        story.updatedAt = new Date().toLocaleDateString('ja-JP');
-
-        this.saveData();
-        this.closeModal();
-
-        if (this.state.currentStoryId === storyId) {
-            const headerTitle = document.getElementById('header-story-title');
-            if (headerTitle) headerTitle.textContent = newTitle;
-        } else {
-            this.renderHome();
-        }
-        this.showToast('物語の名前・メモを更新しました');
-    }
-
-    confirmDeleteStory(storyId) {
-        const story = this.state.stories.find(s => s.id === storyId);
-        if (!story) return;
-        this.openModal(`
-            <h3 class="font-bold text-lg text-rose-500 flex items-center gap-2">
-                <i class="ph-bold ph-warning-circle text-2xl"></i>
-                <span>物語フォルダを削除しますか？</span>
-            </h3>
-            <p class="text-sm text-slate-600 dark:text-slate-300">
-                「<span class="font-bold">${this.escapeHtml(story.title)}</span>」内のすべての設定・付箋が完全に削除されます。
-            </p>
-            <div class="flex justify-end gap-2 pt-2">
-                <button onclick="app.closeModal()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800">キャンセル</button>
-                <button onclick="app.deleteStory('${storyId}')" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white">削除する</button>
-            </div>
-        `);
-    }
-
-    deleteStory(storyId) {
-        this.state.stories = this.state.stories.filter(s => s.id !== storyId);
-        this.saveData();
-        this.closeModal();
-        this.renderHome();
-        this.showToast('物語フォルダを削除しました');
-    }
-
-    // ==================== サイドドロワー制御 ====================
-    toggleDrawer(drawerName) {
-        this.flushTemplateInputs();
-        if (this.state.activeDrawer === drawerName) {
-            this.closeDrawer();
-            return;
-        }
-        this.state.activeDrawer = drawerName;
-        this.state.pendingCharColorHex = null;
-        this.state.pendingMainColorHex = null;
-        if (this.state.isConnectMode) {
-            this.toggleConnectMode(false);
-        }
-        document.getElementById('side-drawer').classList.remove('hidden');
-        this.updateNavHighlight();
-        this.renderDrawer();
-    }
-
-    closeDrawer() {
-        this.flushTemplateInputs();
-        this.state.activeDrawer = null;
-        document.getElementById('side-drawer').classList.add('hidden');
-        this.updateNavHighlight();
-    }
-
-    updateNavHighlight() {
-        ['template', 'world', 'characters', 'stickies'].forEach(name => {
-            const btn = document.getElementById(`nav-${name}`);
-            if (!btn) return;
-            if (this.state.activeDrawer === name) {
-                btn.classList.add('bg-cyan-500/15', 'text-cyan-600', 'dark:text-cyber-cyan', 'ring-1', 'ring-cyan-500/50');
-            } else {
-                btn.classList.remove('bg-cyan-500/15', 'text-cyan-600', 'dark:text-cyber-cyan', 'ring-1', 'ring-cyan-500/50');
-            }
-        });
-    }
-
-    renderDrawer() {
-        const titleEl = document.getElementById('drawer-title');
-        const contentEl = document.getElementById('drawer-content');
-        const story = this.getCurrentStory();
-        if (!story) return;
-
-        if (this.state.activeDrawer === 'template') {
-            titleEl.innerHTML = `<i class="ph-duotone ph-blueprint text-amber-500 text-lg"></i> 簡易テンプレート (PSLOC)`;
-            this.renderSimpleTemplateDrawer(contentEl, story);
-        } else if (this.state.activeDrawer === 'world') {
-            titleEl.innerHTML = `<i class="ph-duotone ph-planet text-cyan-500 text-lg"></i> 舞台設定`;
-            this.renderWorldDrawer(contentEl, story);
-        } else if (this.state.activeDrawer === 'characters') {
-            titleEl.innerHTML = `<i class="ph-duotone ph-users-three text-pink-500 text-lg"></i> キャラクター設定`;
-            this.renderCharactersDrawer(contentEl, story);
-        } else if (this.state.activeDrawer === 'stickies') {
-            titleEl.innerHTML = `<i class="ph-duotone ph-note-pencil text-emerald-500 text-lg"></i> 付箋作成・フォルダ管理`;
-            this.renderStickiesDrawer(contentEl, story);
-        }
-    }
-
-    // ==================== 簡易テンプレート（PSLOC） ====================
-    renderSimpleTemplateDrawer(container, story) {
-        const tpl = story.simpleTemplate || { p: '', s: '', l: '', o: '', c: '' };
-        const items = [
-            { key: 'p', letter: 'P', label: '主人公 (Protagonist)', placeholder: '物語の中心となる主人公の人物像や立場...', help: null },
-            { key: 's', letter: 'S', label: '舞台 (Setting)', placeholder: '物語が繰り広げられる時代・場所・環境...', help: null },
-            { key: 'l', letter: 'L', label: '欠落 (Lack)', placeholder: '主人公に欠けているもの・抱えている悩みや渇望...', help: 'L、欠落:主人公の活動、同期葛藤の源泉' },
-            { key: 'o', letter: 'O', label: '障害 (Obstacle)', placeholder: '主人公の前に立ちはだかる具体的な壁や敵...', help: 'O、障害:具体的な事象、物、人物' },
-            { key: 'c', letter: 'C', label: '変化 (Change)', placeholder: '物語の最初と最後で主人公や状況がどう変わったか...', help: 'C、変化:最初と最後で変わっていること' }
-        ];
-
-        let html = `
-            <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed flex items-center justify-between gap-2">
-                <span>物語の骨格を5つの要素（PSLOC）で整理できます。</span>
-                <span class="shrink-0 text-[10px] font-bold text-amber-600 dark:text-amber-400">自動保存</span>
-            </div>
-            <div class="space-y-3">
         `;
+        lucide.createIcons();
+        return;
+    }
 
-        items.forEach(item => {
-            html += `
-                <div class="p-3 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div class="flex items-center justify-between gap-2">
+    grid.innerHTML = projects.map(p => {
+        const dateStr = new Date(p.updatedAt || Date.now()).toLocaleDateString('ja-JP');
+        const noteCount = (p.notes || []).length;
+        const charCount = (p.characters || []).length;
+        return `
+            <div onclick="openProject('${p.id}')" class="group relative rounded-2xl bg-white dark:bg-cyber-panel border border-slate-200 dark:border-cyber-border hover:border-purple-400 dark:hover:border-purple-400 p-5 shadow-sm hover:shadow-xl transition cursor-pointer flex flex-col justify-between">
+                <div>
+                    <div class="flex items-start justify-between gap-2 mb-3">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500/15 via-purple-500/15 to-indigo-500/15 border border-purple-400/30 flex items-center justify-center text-purple-500 dark:text-purple-300">
+                            <i data-lucide="folder-open" class="w-5 h-5"></i>
+                        </div>
+                        <div class="flex items-center gap-1" onclick="event.stopPropagation()">
+                            <button onclick="openProjectModal('${p.id}')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-cyber-card text-slate-400 hover:text-purple-400 transition" title="タイトル・メモを編集">
+                                <i data-lucide="pencil" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="deleteProject('${p.id}')" class="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition" title="削除">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <h3 class="font-bold text-base mb-1.5 group-hover:text-purple-500 dark:group-hover:text-purple-300 transition line-clamp-1">${escapeHtml(p.title)}</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 min-h-[2.5em]">${escapeHtml(p.memo || 'メモなし')}</p>
+                </div>
+
+                <div class="mt-4 pt-3 border-t border-slate-100 dark:border-cyber-border flex items-center justify-between text-[11px] font-mono text-slate-400">
+                    <div class="flex items-center gap-3">
+                        <span>付箋: ${noteCount}</span>
+                        <span>キャラ: ${charCount}</span>
+                    </div>
+                    <span>${dateStr}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+    lucide.createIcons();
+}
+
+function openProjectModal(editId = null) {
+    const modal = document.getElementById('project-modal');
+    const titleEl = document.getElementById('project-modal-title');
+    const idInput = document.getElementById('edit-project-id');
+    const titleInput = document.getElementById('input-project-title');
+    const memoInput = document.getElementById('input-project-memo');
+
+    if (editId) {
+        const proj = projects.find(p => p.id === editId);
+        if (!proj) return;
+        titleEl.innerHTML = `<i data-lucide="pencil" class="w-5 h-5 text-purple-400"></i><span>物語の情報を編集</span>`;
+        idInput.value = proj.id;
+        titleInput.value = proj.title;
+        memoInput.value = proj.memo || '';
+    } else {
+        titleEl.innerHTML = `<i data-lucide="folder-plus" class="w-5 h-5 text-purple-400"></i><span>新しい物語を作成</span>`;
+        idInput.value = '';
+        titleInput.value = '';
+        memoInput.value = '';
+    }
+
+    modal.classList.remove('hidden');
+    lucide.createIcons();
+    setTimeout(() => titleInput.focus(), 50);
+}
+
+function closeProjectModal() {
+    document.getElementById('project-modal').classList.add('hidden');
+}
+
+function saveProjectModal() {
+    const editId = document.getElementById('edit-project-id').value;
+    const title = document.getElementById('input-project-title').value.trim() || '無題の物語';
+    const memo = document.getElementById('input-project-memo').value.trim();
+
+    if (editId) {
+        const proj = projects.find(p => p.id === editId);
+        if (proj) {
+            if (currentProjectId === editId) pushHistory();
+            proj.title = title;
+            proj.memo = memo;
+            proj.updatedAt = Date.now();
+            saveProjects();
+            if (currentProjectId === editId) {
+                document.getElementById('workspace-title').textContent = proj.title;
+            }
+            renderHomeView();
+            showToast('物語情報を更新しました');
+        }
+    } else {
+        const newProj = createDefaultProject(title, memo);
+        projects.unshift(newProj);
+        saveProjects();
+        renderHomeView();
+        openProject(newProj.id);
+        showToast('新しい物語を作成しました');
+    }
+    closeProjectModal();
+}
+
+function deleteProject(id) {
+    if (!confirm('この物語プロジェクトを削除しますか？')) return;
+    projects = projects.filter(p => p.id !== id);
+    saveProjects();
+    renderHomeView();
+    showToast('プロジェクトを削除しました');
+}
+
+// ==========================================
+// WORKSPACE 遷移・全体更新
+// ==========================================
+function openProject(id) {
+    currentProjectId = id;
+    const proj = getCurrentProject();
+    if (!proj) return;
+
+    // データ後方互換補完
+    if (!proj.template) proj.template = { P: '', S: '', L: '', O: '', C: '' };
+    if (!proj.outlineColor) proj.outlineColor = '#6366f1';
+    if (!proj.stages) proj.stages = [];
+    if (!proj.characters) proj.characters = [];
+    if (!proj.notes) proj.notes = [];
+    if (!proj.connections) proj.connections = [];
+
+    undoStack = [];
+    redoStack = [];
+    selectedNoteIds.clear();
+    activeDrawer = null;
+    activeCharacterId = null;
+
+    document.getElementById('home-view').classList.add('hidden');
+    document.getElementById('workspace-view').classList.remove('hidden');
+    document.getElementById('workspace-title').textContent = proj.title;
+    document.getElementById('drawer-panel').classList.add('hidden');
+    document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+
+    setCanvasMode('move');
+    resetViewport(false);
+    refreshWorkspaceUI();
+    updateHistoryButtons();
+}
+
+function goHome() {
+    autoSaveTemplateIfOpen();
+    currentProjectId = null;
+    activeDrawer = null;
+    document.getElementById('workspace-view').classList.add('hidden');
+    document.getElementById('home-view').classList.remove('hidden');
+    renderHomeView();
+}
+
+function refreshWorkspaceUI() {
+    renderCanvasNotes();
+    renderConnections();
+    updateGraphTargetOptions();
+    renderEmotionGraph();
+    if (activeDrawer) {
+        renderDrawerContent();
+    }
+}
+
+// ==========================================
+// 左サイドバー・ドロワー制御
+// ==========================================
+function toggleDrawer(type) {
+    autoSaveTemplateIfOpen();
+
+    if (activeDrawer === type) {
+        closeDrawer();
+        return;
+    }
+
+    activeDrawer = type;
+    document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById('nav-' + type);
+    if (btn) btn.classList.add('active');
+
+    document.getElementById('drawer-panel').classList.remove('hidden');
+    renderDrawerContent();
+}
+
+function closeDrawer() {
+    autoSaveTemplateIfOpen();
+    activeDrawer = null;
+    document.getElementById('drawer-panel').classList.add('hidden');
+    document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+}
+
+function autoSaveTemplateIfOpen() {
+    if (activeDrawer !== 'template') return;
+    const proj = getCurrentProject();
+    if (!proj) return;
+    const pEl = document.getElementById('tpl-P');
+    if (!pEl) return;
+    proj.template = {
+        P: document.getElementById('tpl-P').value,
+        S: document.getElementById('tpl-S').value,
+        L: document.getElementById('tpl-L').value,
+        O: document.getElementById('tpl-O').value,
+        C: document.getElementById('tpl-C').value
+    };
+    proj.updatedAt = Date.now();
+    saveProjects();
+}
+
+function renderDrawerContent() {
+    const titleEl = document.getElementById('drawer-title');
+    const contentEl = document.getElementById('drawer-content');
+    const proj = getCurrentProject();
+    if (!proj) return;
+
+    if (activeDrawer === 'template') {
+        titleEl.innerHTML = `<i data-lucide="layout-template" class="w-4 h-4 text-emerald-400"></i><span>簡易テンプレート (PSLOC)</span>`;
+        const t = proj.template || { P: '', S: '', L: '', O: '', C: '' };
+        contentEl.innerHTML = `
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">物語の核となる5要素を整理します（入力内容は自動で保存されます）。</p>
+            <div class="space-y-3">
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border">
+                    <label class="block text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-1">P：主人公（Protagonist）</label>
+                    <textarea id="tpl-P" rows="2" oninput="onTemplateInput()" placeholder="誰の物語か？" class="w-full bg-transparent text-xs focus:outline-none resize-none">${escapeHtml(t.P)}</textarea>
+                </div>
+
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border">
+                    <label class="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1">S：舞台（Setting）</label>
+                    <textarea id="tpl-S" rows="2" oninput="onTemplateInput()" placeholder="いつ・どこで起きる物語か？" class="w-full bg-transparent text-xs focus:outline-none resize-none">${escapeHtml(t.S)}</textarea>
+                </div>
+
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-bold text-pink-600 dark:text-pink-400">L：欠落（Lack）</label>
+                        <button onclick="showPslocHelp('L')" class="w-5 h-5 rounded-full bg-pink-500/15 text-pink-500 dark:text-pink-300 font-bold text-[11px] flex items-center justify-center hover:bg-pink-500/25" title="Lの解説を表示">？</button>
+                    </div>
+                    <textarea id="tpl-L" rows="2" oninput="onTemplateInput()" placeholder="主人公に欠けているもの・葛藤の源泉" class="w-full bg-transparent text-xs focus:outline-none resize-none">${escapeHtml(t.L)}</textarea>
+                </div>
+
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-bold text-amber-600 dark:text-amber-400">O：障害（Obstacle）</label>
+                        <button onclick="showPslocHelp('O')" class="w-5 h-5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 font-bold text-[11px] flex items-center justify-center hover:bg-amber-500/25" title="Oの解説を表示">？</button>
+                    </div>
+                    <textarea id="tpl-O" rows="2" oninput="onTemplateInput()" placeholder="立ちはだかる壁・敵・問題" class="w-full bg-transparent text-xs focus:outline-none resize-none">${escapeHtml(t.O)}</textarea>
+                </div>
+
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-bold text-purple-600 dark:text-purple-400">C：変化（Change）</label>
+                        <button onclick="showPslocHelp('C')" class="w-5 h-5 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-300 font-bold text-[11px] flex items-center justify-center hover:bg-purple-500/25" title="Cの解説を表示">？</button>
+                    </div>
+                    <textarea id="tpl-C" rows="2" oninput="onTemplateInput()" placeholder="最初と最後でどう変わるか？" class="w-full bg-transparent text-xs focus:outline-none resize-none">${escapeHtml(t.C)}</textarea>
+                </div>
+            </div>
+        `;
+    } else if (activeDrawer === 'stage') {
+        titleEl.innerHTML = `<i data-lucide="globe" class="w-4 h-4 text-indigo-400"></i><span>舞台設定</span>`;
+        contentEl.innerHTML = `
+            <div class="flex items-center justify-between">
+                <p class="text-xs text-slate-500 dark:text-slate-400">世界観・時代・ルールを自由に追加</p>
+                <button onclick="addStageItem()" class="px-3 py-1.5 rounded-lg bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-400/30 text-xs font-bold flex items-center gap-1 hover:bg-indigo-500/25">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i>枠を追加
+                </button>
+            </div>
+            <div class="space-y-3">
+                ${proj.stages.map(s => `
+                    <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border space-y-2">
                         <div class="flex items-center gap-2">
-                            <span class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-600 dark:text-cyber-amber font-mono font-bold text-xs flex items-center justify-center border border-amber-500/40">${item.letter}</span>
-                            <span class="font-bold text-xs text-slate-800 dark:text-slate-100">${item.label}</span>
+                            <input type="text" value="${escapeHtml(s.title)}" onchange="updateStageItem('${s.id}', 'title', this.value)" placeholder="項目名（例：魔法体系）" class="flex-1 bg-transparent font-bold text-xs border-b border-slate-200 dark:border-cyber-border pb-1 focus:outline-none focus:border-indigo-400">
+                            <button onclick="deleteStageItem('${s.id}')" class="text-slate-400 hover:text-rose-500 p-1"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                         </div>
-                        ${item.help ? `
-                            <button type="button" onclick="app.toggleTemplateHelp('${item.key}')" class="w-6 h-6 rounded-full bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-600 dark:text-cyber-cyan border border-cyan-500/40 flex items-center justify-center text-xs font-bold transition" title="説明を表示">
-                                ？
-                            </button>
-                        ` : ''}
+                        <textarea rows="3" onchange="updateStageItem('${s.id}', 'content', this.value)" placeholder="詳細を記述..." class="w-full bg-transparent text-xs focus:outline-none resize-none">${escapeHtml(s.content)}</textarea>
                     </div>
-                    ${item.help ? `
-                        <div id="tpl-help-${item.key}" class="hidden p-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/40 text-xs text-cyan-800 dark:text-cyan-200 font-medium leading-relaxed">
-                            <i class="ph-fill ph-info text-cyan-500 mr-1"></i>${this.escapeHtml(item.help)}
-                        </div>
-                    ` : ''}
-                    <textarea id="tpl-input-${item.key}" rows="2" oninput="app.updateSimpleTemplate('${item.key}', this.value, false)" onchange="app.updateSimpleTemplate('${item.key}', this.value, true)" placeholder="${item.placeholder}" class="w-full text-xs bg-white dark:bg-cyber-panel p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 focus:border-amber-500 focus:outline-none leading-relaxed">${this.escapeHtml(tpl[item.key] || '')}</textarea>
+                `).join('')}
+            </div>
+        `;
+    } else if (activeDrawer === 'characters') {
+        renderCharacterDrawer(titleEl, contentEl, proj);
+    } else if (activeDrawer === 'notes') {
+        renderNotesDrawer(titleEl, contentEl, proj);
+    } else if (activeDrawer === 'connect') {
+        renderConnectDrawer(titleEl, contentEl, proj);
+    } else if (activeDrawer === 'pdf') {
+        renderPdfDrawer(titleEl, contentEl, proj);
+    }
+
+    lucide.createIcons();
+}
+
+function onTemplateInput() {
+    autoSaveTemplateIfOpen();
+}
+
+function showPslocHelp(key) {
+    const def = PSLOC_DEFINITIONS[key];
+    if (!def) return;
+    document.getElementById('psloc-help-title').textContent = def.title;
+    document.getElementById('psloc-help-body').textContent = def.body;
+    document.getElementById('psloc-help-modal').classList.remove('hidden');
+}
+
+// ==========================================
+// 舞台設定 CRUD
+// ==========================================
+function addStageItem() {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    pushHistory();
+    proj.stages.push({
+        id: 'stg_' + Date.now(),
+        title: '新しい舞台項目',
+        content: ''
+    });
+    saveProjects();
+    renderDrawerContent();
+}
+
+function updateStageItem(id, field, val) {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    const item = proj.stages.find(s => s.id === id);
+    if (!item) return;
+    pushHistory();
+    item[field] = val;
+    saveProjects();
+}
+
+function deleteStageItem(id) {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    pushHistory();
+    proj.stages = proj.stages.filter(s => s.id !== id);
+    saveProjects();
+    renderDrawerContent();
+}
+
+// ==========================================
+// キャラクター設定（画像・No.・7項目・カラー適用＆重複禁止）
+// ==========================================
+function renderCharacterDrawer(titleEl, contentEl, proj) {
+    titleEl.innerHTML = `<i data-lucide="users" class="w-4 h-4 text-pink-400"></i><span>キャラクター設定</span>`;
+
+    if (activeCharacterId) {
+        const char = proj.characters.find(c => c.id === activeCharacterId);
+        if (!char) {
+            activeCharacterId = null;
+            renderDrawerContent();
+            return;
+        }
+
+        const usedColors = getUsedColorsExcept(proj, char.id);
+        const pendingColor = char._pendingColor || char.color;
+
+        contentEl.innerHTML = `
+            <button onclick="activeCharacterId = null; renderDrawerContent();" class="text-xs font-bold text-purple-500 dark:text-purple-300 flex items-center gap-1 hover:underline">
+                <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>キャラフォルダ一覧へ戻る
+            </button>
+
+            <!-- キャラ画像 & ナンバー -->
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border flex items-center gap-3">
+                <div class="w-16 h-16 rounded-xl bg-slate-200 dark:bg-cyber-panel border border-slate-300 dark:border-cyber-border overflow-hidden flex items-center justify-center shrink-0">
+                    ${char.image
+                        ? `<img src="${char.image}" class="w-full h-full object-cover">`
+                        : `<i data-lucide="user" class="w-7 h-7 text-slate-400"></i>`
+                    }
                 </div>
-            `;
-        });
+                <div class="flex-1 space-y-2">
+                    <div class="flex items-center gap-2">
+                        <label class="text-[11px] font-bold text-slate-500">キャラNo.</label>
+                        <input type="number" min="1" value="${char.number || 1}" onchange="updateCharacterMeta('${char.id}', 'number', parseInt(this.value) || 1)" class="w-16 px-2 py-1 rounded-lg bg-white dark:bg-cyber-panel border border-slate-200 dark:border-cyber-border text-xs font-mono">
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <label class="px-2.5 py-1 rounded-lg bg-pink-500/15 text-pink-600 dark:text-pink-300 text-[11px] font-bold cursor-pointer hover:bg-pink-500/25">
+                            画像を選択
+                            <input type="file" accept="image/*" class="hidden" onchange="handleCharacterImageUpload(event, '${char.id}')">
+                        </label>
+                        ${char.image ? `<button onclick="removeCharacterImage('${char.id}')" class="px-2 py-1 rounded-lg text-[11px] text-slate-400 hover:text-rose-500">削除</button>` : ''}
+                    </div>
+                </div>
+            </div>
 
-        html += `</div>`;
-        container.innerHTML = html;
-    }
-
-    toggleTemplateHelp(key) {
-        const el = document.getElementById(`tpl-help-${key}`);
-        if (el) el.classList.toggle('hidden');
-    }
-
-    updateSimpleTemplate(key, value, recordHistory = true) {
-        const story = this.getCurrentStory();
-        if (!story) return;
-        if (!story.simpleTemplate) {
-            story.simpleTemplate = { p: '', s: '', l: '', o: '', c: '' };
-        }
-        if (story.simpleTemplate[key] !== value) {
-            if (recordHistory) {
-                this.pushHistory();
-            }
-            story.simpleTemplate[key] = value;
-            this.saveData();
-        }
-    }
-
-    flushTemplateInputs() {
-        if (this.state.activeDrawer !== 'template') return;
-        const story = this.getCurrentStory();
-        if (!story) return;
-        if (!story.simpleTemplate) {
-            story.simpleTemplate = { p: '', s: '', l: '', o: '', c: '' };
-        }
-        let changed = false;
-        ['p', 's', 'l', 'o', 'c'].forEach(key => {
-            const el = document.getElementById(`tpl-input-${key}`);
-            if (el && story.simpleTemplate[key] !== el.value) {
-                story.simpleTemplate[key] = el.value;
-                changed = true;
-            }
-        });
-        if (changed) {
-            this.saveData();
-        }
-    }
-
-    // ==================== 機能1: 舞台設定 ====================
-    renderWorldDrawer(container, story) {
-        let html = `
-            <div class="flex items-center justify-between">
-                <p class="text-xs text-slate-500 dark:text-slate-400">世界観・種族・成り立ちなどの枠を自由に整理できます。</p>
-                <button onclick="app.addWorldSection()" class="px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-600 dark:text-cyber-cyan border border-cyan-500/40 text-xs font-bold flex items-center gap-1 shrink-0">
-                    <i class="ph-bold ph-plus"></i> 枠を追加
+            <!-- テーマカラー設定（重複不可 ＋ この色を適用） -->
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border space-y-2.5">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold">テーマカラー設定</span>
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded text-white" style="background:${pendingColor}">選択中</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <!-- 左端：自由カラーピッカー -->
+                    <label class="w-7 h-7 rounded-lg border-2 border-dashed border-slate-400 flex items-center justify-center cursor-pointer overflow-hidden relative" title="自由な色を選択">
+                        <input type="color" value="${pendingColor}" onchange="selectPendingCharacterColor('${char.id}', this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer">
+                        <i data-lucide="pipette" class="w-3.5 h-3.5 text-slate-500"></i>
+                    </label>
+                    ${COLOR_PALETTE.map(c => {
+                        const isUsed = usedColors.includes(c.toLowerCase());
+                        const isSelected = pendingColor.toLowerCase() === c.toLowerCase();
+                        return `
+                            <button type="button"
+                                ${isUsed ? 'disabled' : `onclick="selectPendingCharacterColor('${char.id}', '${c}')"`}
+                                class="w-7 h-7 rounded-lg transition relative ${isUsed ? 'opacity-20 cursor-not-allowed' : 'hover:scale-110'} ${isSelected ? 'ring-2 ring-offset-2 ring-purple-500 dark:ring-offset-cyber-card' : ''}"
+                                style="background:${c}"
+                                title="${isUsed ? '他のキャラまたは大筋で使用中' : c}">
+                                ${isUsed ? '<span class="text-[10px] text-white font-bold">×</span>' : ''}
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+                <button onclick="applyCharacterColor('${char.id}')" class="w-full py-2 rounded-lg bg-gradient-to-r from-pink-500 to-purple-600 text-white text-xs font-bold shadow-sm hover:opacity-95">
+                    この色を適用
                 </button>
             </div>
-            <div class="space-y-3">
-        `;
 
-        if (story.worldSettings.length === 0) {
-            html += `<div class="text-center py-8 text-xs text-slate-400 border border-dashed border-slate-700 rounded-xl">枠がありません。「枠を追加」から作成してください。</div>`;
-        } else {
-            story.worldSettings.forEach(ws => {
-                html += `
-                    <div class="p-3.5 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800 space-y-2">
+            <!-- プロフィール項目（デフォルト7項目＋追加・削除可） -->
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold">プロフィール項目</span>
+                    <button onclick="addCharacterField('${char.id}')" class="px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-600 dark:text-purple-300 text-[11px] font-bold flex items-center gap-1">
+                        <i data-lucide="plus" class="w-3 h-3"></i>項目追加
+                    </button>
+                </div>
+                ${char.fields.map((f, idx) => `
+                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border space-y-1">
                         <div class="flex items-center justify-between gap-2">
-                            <input type="text" value="${this.escapeHtml(ws.title)}" onchange="app.updateWorldSection('${ws.id}', 'title', this.value)" placeholder="題名（例：世界観、魔法体系）" class="font-bold text-xs bg-transparent border-b border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none py-1 flex-1 text-cyan-700 dark:text-cyber-cyan">
-                            <button onclick="app.deleteWorldSection('${ws.id}')" class="p-1 text-slate-400 hover:text-rose-500 transition" title="この枠を削除">
-                                <i class="ph ph-trash"></i>
-                            </button>
+                            <input type="text" value="${escapeHtml(f.label)}" onchange="updateCharacterField('${char.id}', ${idx}, 'label', this.value)" class="text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-transparent focus:outline-none">
+                            <button onclick="deleteCharacterField('${char.id}', ${idx})" class="text-slate-400 hover:text-rose-500"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
                         </div>
-                        <textarea rows="3" onchange="app.updateWorldSection('${ws.id}', 'content', this.value)" placeholder="設定の詳細を記述..." class="w-full text-xs bg-white dark:bg-cyber-panel p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 focus:border-cyan-500 focus:outline-none leading-relaxed">${this.escapeHtml(ws.content)}</textarea>
+                        <input type="text" value="${escapeHtml(f.value)}" onchange="updateCharacterField('${char.id}', ${idx}, 'value', this.value)" placeholder="未入力" class="w-full text-xs bg-transparent focus:outline-none">
+                    </div>
+                `).join('')}
+            </div>
+
+            <button onclick="deleteCharacter('${char.id}')" class="w-full py-2 rounded-xl border border-rose-500/40 text-rose-500 text-xs font-bold hover:bg-rose-500/10">
+                このキャラクターを削除
+            </button>
+        `;
+        return;
+    }
+
+    // キャラフォルダ一覧
+    const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+    contentEl.innerHTML = `
+        <div class="flex items-center justify-between">
+            <p class="text-xs text-slate-500 dark:text-slate-400">登場人物フォルダ管理</p>
+            <button onclick="addCharacter()" class="px-3 py-1.5 rounded-lg bg-pink-500/15 text-pink-600 dark:text-pink-300 border border-pink-400/30 text-xs font-bold flex items-center gap-1 hover:bg-pink-500/25">
+                <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>キャラ追加
+            </button>
+        </div>
+
+        <div class="space-y-2.5">
+            ${sortedChars.length === 0 ? `<p class="text-xs text-center py-8 text-slate-400">キャラクターがまだ登録されていません</p>` : ''}
+            ${sortedChars.map(c => {
+                const nameField = c.fields.find(f => f.label === 'キャラ名');
+                const dispName = (nameField && nameField.value) ? nameField.value : '名称未設定キャラ';
+                return `
+                    <div onclick="activeCharacterId = '${c.id}'; renderDrawerContent();" class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border hover:border-pink-400 cursor-pointer flex items-center gap-3 transition">
+                        <div class="w-11 h-11 rounded-xl overflow-hidden bg-slate-200 dark:bg-cyber-panel flex items-center justify-center shrink-0 border-2" style="border-color:${c.color}">
+                            ${c.image
+                                ? `<img src="${c.image}" class="w-full h-full object-cover">`
+                                : `<i data-lucide="user" class="w-5 h-5" style="color:${c.color}"></i>`
+                            }
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded text-white font-bold" style="background:${c.color}">No.${c.number || '-'}</span>
+                                <span class="font-bold text-xs truncate">${escapeHtml(dispName)}</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 truncate mt-0.5">${c.fields.slice(1, 4).map(f => f.value).filter(Boolean).join(' / ') || 'タップして詳細編集'}</p>
+                        </div>
+                        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
                     </div>
                 `;
-            });
+            }).join('')}
+        </div>
+    `;
+}
+
+function getUsedColorsExcept(proj, excludeCharId = null) {
+    const used = [];
+    if (excludeCharId !== 'outline' && proj.outlineColor) {
+        used.push(proj.outlineColor.toLowerCase());
+    }
+    proj.characters.forEach(c => {
+        if (c.id !== excludeCharId && c.color) {
+            used.push(c.color.toLowerCase());
         }
+    });
+    return used;
+}
 
-        html += `</div>`;
-        container.innerHTML = html;
+function addCharacter() {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    pushHistory();
+
+    const used = getUsedColorsExcept(proj, null);
+    const availableColor = COLOR_PALETTE.find(c => !used.includes(c.toLowerCase())) || '#ec4899';
+    const nextNo = proj.characters.length + 1;
+
+    const newChar = {
+        id: 'char_' + Date.now(),
+        number: nextNo,
+        color: availableColor,
+        image: '',
+        fields: [
+            { label: 'キャラ名', value: '' },
+            { label: '性別', value: '' },
+            { label: '種族', value: '' },
+            { label: '年齢', value: '' },
+            { label: '身長', value: '' },
+            { label: '職業', value: '' },
+            { label: '特徴', value: '' }
+        ]
+    };
+    proj.characters.push(newChar);
+    activeCharacterId = newChar.id;
+    saveProjects();
+    refreshWorkspaceUI();
+}
+
+function updateCharacterMeta(charId, field, val) {
+    const proj = getCurrentProject();
+    const char = proj?.characters.find(c => c.id === charId);
+    if (!char) return;
+    pushHistory();
+    char[field] = val;
+    saveProjects();
+    refreshWorkspaceUI();
+}
+
+function handleCharacterImageUpload(event, charId) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const maxDim = 240;
+            let w = img.width;
+            let h = img.height;
+            if (w > h && w > maxDim) {
+                h = Math.round((h * maxDim) / w);
+                w = maxDim;
+            } else if (h >= w && h > maxDim) {
+                w = Math.round((w * maxDim) / h);
+                h = maxDim;
+            }
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+
+            const proj = getCurrentProject();
+            const char = proj?.characters.find(c => c.id === charId);
+            if (!char) return;
+            pushHistory();
+            char.image = dataUrl;
+            saveProjects();
+            renderDrawerContent();
+            showToast('キャラクター画像を設定しました');
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function removeCharacterImage(charId) {
+    const proj = getCurrentProject();
+    const char = proj?.characters.find(c => c.id === charId);
+    if (!char) return;
+    pushHistory();
+    char.image = '';
+    saveProjects();
+    renderDrawerContent();
+}
+
+function selectPendingCharacterColor(charId, color) {
+    const proj = getCurrentProject();
+    const char = proj?.characters.find(c => c.id === charId);
+    if (!char) return;
+    const used = getUsedColorsExcept(proj, charId);
+    if (used.includes(color.toLowerCase())) {
+        showToast('この色は他のキャラまたは大筋で使用中です');
+        return;
     }
+    char._pendingColor = color;
+    renderDrawerContent();
+}
 
-    addWorldSection() {
-        const story = this.getCurrentStory();
-        this.pushHistory();
-        story.worldSettings.push({
-            id: 'ws_' + Date.now(),
-            title: '新しい設定項目',
-            content: ''
-        });
-        this.saveData();
-        this.renderDrawer();
+function applyCharacterColor(charId) {
+    const proj = getCurrentProject();
+    const char = proj?.characters.find(c => c.id === charId);
+    if (!char) return;
+    const targetColor = char._pendingColor || char.color;
+    const used = getUsedColorsExcept(proj, charId);
+    if (used.includes(targetColor.toLowerCase())) {
+        showToast('この色は既に使用されているため適用できません');
+        return;
     }
+    pushHistory();
+    char.color = targetColor;
+    delete char._pendingColor;
+    saveProjects();
+    refreshWorkspaceUI();
+    showToast('キャラクターカラーを適用しました');
+}
 
-    updateWorldSection(id, field, value) {
-        const story = this.getCurrentStory();
-        const item = story.worldSettings.find(w => w.id === id);
-        if (item && item[field] !== value) {
-            this.pushHistory();
-            item[field] = value;
-            this.saveData();
-        }
-    }
+function addCharacterField(charId) {
+    const proj = getCurrentProject();
+    const char = proj?.characters.find(c => c.id === charId);
+    if (!char) return;
+    pushHistory();
+    char.fields.push({ label: '追加項目', value: '' });
+    saveProjects();
+    renderDrawerContent();
+}
 
-    deleteWorldSection(id) {
-        const story = this.getCurrentStory();
-        this.pushHistory();
-        story.worldSettings = story.worldSettings.filter(w => w.id !== id);
-        this.saveData();
-        this.renderDrawer();
-        this.showToast('舞台設定の枠を削除しました');
-    }
+function updateCharacterField(charId, idx, key, val) {
+    const proj = getCurrentProject();
+    const char = proj?.characters.find(c => c.id === charId);
+    if (!char || !char.fields[idx]) return;
+    pushHistory();
+    char.fields[idx][key] = val;
+    saveProjects();
+    refreshWorkspaceUI();
+}
 
-    // ==================== 機能2: キャラクター設定（キャラNo.・画像挿入・デフォルト7項目・カラー確定ボタン） ====================
-    renderCharactersDrawer(container, story) {
-        const selectedChar = story.characters.find(c => c.id === this.state.selectedCharId) || null;
+function deleteCharacterField(charId, idx) {
+    const proj = getCurrentProject();
+    const char = proj?.characters.find(c => c.id === charId);
+    if (!char) return;
+    pushHistory();
+    char.fields.splice(idx, 1);
+    saveProjects();
+    renderDrawerContent();
+}
 
-        let html = `
+function deleteCharacter(charId) {
+    if (!confirm('このキャラクターを削除しますか？（関連付箋は大筋へ移行します）')) return;
+    const proj = getCurrentProject();
+    if (!proj) return;
+    pushHistory();
+    proj.characters = proj.characters.filter(c => c.id !== charId);
+    proj.notes.forEach(n => {
+        if (n.targetId === charId) n.targetId = 'outline';
+    });
+    activeCharacterId = null;
+    saveProjects();
+    refreshWorkspaceUI();
+    showToast('キャラクターを削除しました');
+}
+
+// ==========================================
+// 付箋作成・大筋カラー設定・付箋フォルダ管理
+// ==========================================
+function renderNotesDrawer(titleEl, contentEl, proj) {
+    titleEl.innerHTML = `<i data-lucide="sticky-note" class="w-4 h-4 text-amber-400"></i><span>付箋作成 & フォルダ一覧</span>`;
+
+    const usedByChars = getUsedColorsExcept(proj, 'outline');
+    const pendingOutline = proj._pendingOutlineColor || proj.outlineColor || '#6366f1';
+    const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+
+    // フィルタ済み付箋リスト
+    const filteredNotes = proj.notes
+        .filter(n => noteFolderFilter === 'all' || n.targetId === noteFolderFilter)
+        .sort((a, b) => (a.number || 0) - (b.number || 0));
+
+    contentEl.innerHTML = `
+        <!-- 大筋付箋の共通カラー設定 -->
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border space-y-2">
             <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">キャラクターフォルダ (${story.characters.length})</span>
-                <button onclick="app.createCharacter()" class="px-3 py-1.5 rounded-lg bg-pink-500/15 hover:bg-pink-500/25 text-pink-600 dark:text-cyber-pink border border-pink-500/40 text-xs font-bold flex items-center gap-1">
-                    <i class="ph-bold ph-user-plus"></i> 新しいキャラを作成
-                </button>
+                <span class="text-xs font-bold">大筋付箋の共通カラー</span>
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded text-white" style="background:${pendingOutline}">大筋</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+                <label class="w-6 h-6 rounded-lg border-2 border-dashed border-slate-400 flex items-center justify-center cursor-pointer overflow-hidden relative" title="自由な色を選択">
+                    <input type="color" value="${pendingOutline}" onchange="selectPendingOutlineColor(this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer">
+                    <i data-lucide="pipette" class="w-3 h-3 text-slate-500"></i>
+                </label>
+                ${COLOR_PALETTE.map(c => {
+                    const isUsed = usedByChars.includes(c.toLowerCase());
+                    const isSelected = pendingOutline.toLowerCase() === c.toLowerCase();
+                    return `
+                        <button type="button"
+                            ${isUsed ? 'disabled' : `onclick="selectPendingOutlineColor('${c}')"`}
+                            class="w-6 h-6 rounded-lg transition ${isUsed ? 'opacity-20 cursor-not-allowed' : 'hover:scale-110'} ${isSelected ? 'ring-2 ring-offset-1 ring-purple-500 dark:ring-offset-cyber-card' : ''}"
+                            style="background:${c}">
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+            <button onclick="applyOutlineColor()" class="w-full py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-bold hover:opacity-95">
+                この色を適用
+            </button>
+        </div>
+
+        <!-- 新しい付箋を作成（色選択なし・対象色を自動適用） -->
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border space-y-2.5">
+            <h4 class="text-xs font-bold flex items-center gap-1.5">
+                <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span>新しい付箋を作成</span>
+            </h4>
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 mb-0.5">番号</label>
+                    <input id="new-note-number" type="number" min="1" value="${proj.notes.length + 1}" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-cyber-panel border border-slate-200 dark:border-cyber-border text-xs font-mono">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 mb-0.5">対象種類</label>
+                    <select id="new-note-target" class="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-cyber-panel border border-slate-200 dark:border-cyber-border text-xs">
+                        <option value="outline">大筋（メイン）</option>
+                        ${sortedChars.map(c => {
+                            const name = c.fields.find(f => f.label === 'キャラ名')?.value || `キャラNo.${c.number}`;
+                            return `<option value="${c.id}">No.${c.number} ${escapeHtml(name)}</option>`;
+                        }).join('')}
+                    </select>
+                </div>
+            </div>
+            <input id="new-note-title" type="text" placeholder="シーン見出し（例：運命の出会い）" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-cyber-panel border border-slate-200 dark:border-cyber-border text-xs">
+            <textarea id="new-note-content" rows="2" placeholder="出来事や感情の詳細..." class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-cyber-panel border border-slate-200 dark:border-cyber-border text-xs resize-none"></textarea>
+            <div>
+                <div class="flex justify-between text-[10px] font-bold mb-0.5">
+                    <span class="text-slate-400">エモーションレベル</span>
+                    <span id="new-note-emo-disp" class="font-mono text-pink-500">0</span>
+                </div>
+                <input id="new-note-emotion" type="range" min="-10" max="10" value="0" oninput="document.getElementById('new-note-emo-disp').textContent = this.value" class="w-full accent-pink-500">
+            </div>
+            <button onclick="createNewNote()" class="w-full py-2 rounded-xl bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 text-white text-xs font-bold shadow-sm hover:opacity-95">
+                白紙に付箋を追加
+            </button>
+        </div>
+
+        <!-- 付箋フォルダ（種類別一覧・出し入れ・編集） -->
+        <div class="space-y-2">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold">付箋フォルダ（種類別一覧）</span>
+                <span class="text-[10px] font-mono text-slate-400">${filteredNotes.length}枚</span>
+            </div>
+
+            <!-- 種類別フィルタタブ -->
+            <div class="flex items-center gap-1 overflow-x-auto pb-1">
+                <button onclick="noteFolderFilter='all'; renderDrawerContent();" class="px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 ${noteFolderFilter === 'all' ? 'bg-purple-600 text-white' : 'bg-slate-100 dark:bg-cyber-card text-slate-500'}">すべて</button>
+                <button onclick="noteFolderFilter='outline'; renderDrawerContent();" class="px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 ${noteFolderFilter === 'outline' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-cyber-card text-slate-500'}">大筋</button>
+                ${sortedChars.map(c => {
+                    const name = c.fields.find(f => f.label === 'キャラ名')?.value || `No.${c.number}`;
+                    return `<button onclick="noteFolderFilter='${c.id}'; renderDrawerContent();" class="px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 ${noteFolderFilter === c.id ? 'text-white' : 'bg-slate-100 dark:bg-cyber-card text-slate-500'}" style="${noteFolderFilter === c.id ? `background:${c.color}` : ''}">${escapeHtml(name)}</button>`;
+                }).join('')}
+            </div>
+
+            <div class="space-y-2">
+                ${filteredNotes.length === 0 ? `<p class="text-[11px] text-center py-4 text-slate-400">該当する付箋がありません</p>` : ''}
+                ${filteredNotes.map(n => {
+                    const color = getNoteColor(proj, n);
+                    const targetLabel = getTargetLabel(proj, n.targetId);
+                    return `
+                        <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border flex items-start justify-between gap-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <span class="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold text-white" style="background:${color}">#${n.number}</span>
+                                    <span class="text-[10px] font-bold truncate" style="color:${color}">${escapeHtml(targetLabel)}</span>
+                                    ${n.hidden ? `<span class="text-[9px] px-1.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-500">収納中</span>` : ''}
+                                </div>
+                                <p class="text-xs font-bold truncate">${escapeHtml(n.title || '無題の付箋')}</p>
+                            </div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick="openNoteEditModal('${n.id}')" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-purple-400" title="編集">
+                                    <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="toggleNoteVisibility('${n.id}')" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-indigo-400" title="${n.hidden ? '白紙に出す' : 'フォルダにしまう'}">
+                                    <i data-lucide="${n.hidden ? 'eye' : 'eye-off'}" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="deleteNote('${n.id}')" class="p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950 text-slate-400 hover:text-rose-500" title="削除">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function selectPendingOutlineColor(color) {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    const used = getUsedColorsExcept(proj, 'outline');
+    if (used.includes(color.toLowerCase())) {
+        showToast('この色はキャラクターで使用中のため選べません');
+        return;
+    }
+    proj._pendingOutlineColor = color;
+    renderDrawerContent();
+}
+
+function applyOutlineColor() {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    const targetColor = proj._pendingOutlineColor || proj.outlineColor;
+    const used = getUsedColorsExcept(proj, 'outline');
+    if (used.includes(targetColor.toLowerCase())) {
+        showToast('キャラクターと重複しているため適用できません');
+        return;
+    }
+    pushHistory();
+    proj.outlineColor = targetColor;
+    delete proj._pendingOutlineColor;
+    saveProjects();
+    refreshWorkspaceUI();
+    showToast('大筋付箋のカラーを適用しました');
+}
+
+function createNewNote() {
+    const proj = getCurrentProject();
+    if (!proj) return;
+
+    const num = parseInt(document.getElementById('new-note-number').value) || (proj.notes.length + 1);
+    const targetId = document.getElementById('new-note-target').value;
+    const title = document.getElementById('new-note-title').value.trim() || `シーン ${num}`;
+    const content = document.getElementById('new-note-content').value.trim();
+    const emotion = parseInt(document.getElementById('new-note-emotion').value) || 0;
+
+    // 現在のビューポート中央付近に配置
+    const area = document.getElementById('canvas-area');
+    const centerX = (-viewX + area.clientWidth / 2) / viewScale - 105 + (Math.random() * 40 - 20);
+    const centerY = (-viewY + area.clientHeight / 2) / viewScale - 60 + (Math.random() * 40 - 20);
+
+    pushHistory();
+    proj.notes.push({
+        id: 'note_' + Date.now(),
+        number: num,
+        targetId,
+        title,
+        content,
+        emotion,
+        x: Math.max(100, Math.min(5700, Math.round(centerX))),
+        y: Math.max(100, Math.min(5700, Math.round(centerY))),
+        hidden: false
+    });
+
+    saveProjects();
+    refreshWorkspaceUI();
+    showToast('付箋を白紙に追加しました');
+}
+
+function toggleNoteVisibility(noteId) {
+    const proj = getCurrentProject();
+    const note = proj?.notes.find(n => n.id === noteId);
+    if (!note) return;
+    pushHistory();
+    note.hidden = !note.hidden;
+    saveProjects();
+    refreshWorkspaceUI();
+}
+
+function deleteNote(noteId) {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    pushHistory();
+    proj.notes = proj.notes.filter(n => n.id !== noteId);
+    proj.connections = proj.connections.filter(c => c.from !== noteId && c.to !== noteId);
+    selectedNoteIds.delete(noteId);
+    saveProjects();
+    refreshWorkspaceUI();
+    showToast('付箋を削除しました');
+}
+
+// 付箋編集モーダル
+function openNoteEditModal(noteId) {
+    const proj = getCurrentProject();
+    const note = proj?.notes.find(n => n.id === noteId);
+    if (!note) return;
+
+    const targetSelect = document.getElementById('edit-note-target');
+    const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+    targetSelect.innerHTML = `
+        <option value="outline">大筋（メイン）</option>
+        ${sortedChars.map(c => {
+            const name = c.fields.find(f => f.label === 'キャラ名')?.value || `No.${c.number}`;
+            return `<option value="${c.id}">No.${c.number} ${escapeHtml(name)}</option>`;
+        }).join('')}
+    `;
+
+    document.getElementById('edit-note-id').value = note.id;
+    document.getElementById('edit-note-number').value = note.number;
+    targetSelect.value = note.targetId;
+    document.getElementById('edit-note-title').value = note.title;
+    document.getElementById('edit-note-content').value = note.content || '';
+    document.getElementById('edit-note-emotion').value = note.emotion || 0;
+    document.getElementById('edit-note-emotion-val').textContent = note.emotion || 0;
+
+    document.getElementById('note-edit-modal').classList.remove('hidden');
+}
+
+function closeNoteEditModal() {
+    document.getElementById('note-edit-modal').classList.add('hidden');
+}
+
+function saveNoteEdit() {
+    const proj = getCurrentProject();
+    const noteId = document.getElementById('edit-note-id').value;
+    const note = proj?.notes.find(n => n.id === noteId);
+    if (!note) return;
+
+    pushHistory();
+    note.number = parseInt(document.getElementById('edit-note-number').value) || 1;
+    note.targetId = document.getElementById('edit-note-target').value;
+    note.title = document.getElementById('edit-note-title').value.trim() || `シーン ${note.number}`;
+    note.content = document.getElementById('edit-note-content').value.trim();
+    note.emotion = parseInt(document.getElementById('edit-note-emotion').value) || 0;
+
+    // 種類が変わった場合、異なる種類の接続線を自動整理
+    proj.connections = proj.connections.filter(conn => {
+        const n1 = proj.notes.find(x => x.id === conn.from);
+        const n2 = proj.notes.find(x => x.id === conn.to);
+        return n1 && n2 && n1.targetId === n2.targetId;
+    });
+
+    saveProjects();
+    closeNoteEditModal();
+    refreshWorkspaceUI();
+    showToast('付箋を更新しました');
+}
+
+// ==========================================
+// 付箋つなぎ（同種のみ接続可能）
+// ==========================================
+function renderConnectDrawer(titleEl, contentEl, proj) {
+    titleEl.innerHTML = `<i data-lucide="git-commit-horizontal" class="w-4 h-4 text-purple-400"></i><span>付箋つなぎ</span>`;
+
+    contentEl.innerHTML = `
+        <div class="p-3.5 rounded-xl bg-purple-500/10 border border-purple-400/30 space-y-2.5">
+            <p class="text-xs leading-relaxed">白紙上の付箋を2枚順番にタップすると、流れを示すラインで結びます。<br><strong class="text-purple-500 dark:text-purple-300">※同じ種類（大筋同士、または同じキャラクター同士）のみ接続できます。</strong></p>
+            <button onclick="startConnectMode()" class="w-full py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold shadow-sm">
+                白紙で付箋をつなぐモードを開始
+            </button>
+        </div>
+
+        <div class="space-y-2">
+            <h4 class="text-xs font-bold">現在の接続一覧（${proj.connections.length}本）</h4>
+            ${proj.connections.length === 0 ? `<p class="text-[11px] text-slate-400 py-4 text-center">まだ接続線がありません</p>` : ''}
+            ${proj.connections.map((conn, idx) => {
+                const n1 = proj.notes.find(n => n.id === conn.from);
+                const n2 = proj.notes.find(n => n.id === conn.to);
+                if (!n1 || !n2) return '';
+                const color = getNoteColor(proj, n1);
+                return `
+                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border flex items-center justify-between gap-2 text-xs">
+                        <div class="truncate flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+                            <span class="font-mono font-bold">#${n1.number}</span>
+                            <span class="truncate">${escapeHtml(n1.title)}</span>
+                            <span class="text-slate-400">→</span>
+                            <span class="font-mono font-bold">#${n2.number}</span>
+                        </div>
+                        <button onclick="deleteConnection(${idx})" class="text-slate-400 hover:text-rose-500 p-1 shrink-0" title="接続解除">
+                            <i data-lucide="unlink" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+function startConnectMode() {
+    canvasMode = 'connect';
+    connectSourceNoteId = null;
+    closeDrawer();
+    document.getElementById('connect-banner').classList.remove('hidden');
+    document.getElementById('connect-banner-text').textContent = '1枚目の付箋をタップしてください（同じ種類同士のみ接続可能）';
+    renderCanvasNotes();
+}
+
+function cancelConnectMode() {
+    connectSourceNoteId = null;
+    document.getElementById('connect-banner').classList.add('hidden');
+    setCanvasMode('move');
+}
+
+function handleNoteClickInConnectMode(noteId) {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    const clickedNote = proj.notes.find(n => n.id === noteId);
+    if (!clickedNote) return;
+
+    if (!connectSourceNoteId) {
+        connectSourceNoteId = noteId;
+        document.getElementById('connect-banner-text').textContent = `「#${clickedNote.number} ${clickedNote.title}」を選択中 → つなぐ2枚目をタップ`;
+        renderCanvasNotes();
+        return;
+    }
+
+    if (connectSourceNoteId === noteId) {
+        connectSourceNoteId = null;
+        document.getElementById('connect-banner-text').textContent = '1枚目の付箋をタップしてください';
+        renderCanvasNotes();
+        return;
+    }
+
+    const sourceNote = proj.notes.find(n => n.id === connectSourceNoteId);
+    if (!sourceNote) return;
+
+    // 同種チェック
+    if (sourceNote.targetId !== clickedNote.targetId) {
+        showToast('異なる種類の付箋同士はつなげません（同じ種類のみ可能）');
+        return;
+    }
+
+    // 重複接続チェック
+    const exists = proj.connections.some(c =>
+        (c.from === sourceNote.id && c.to === clickedNote.id) ||
+        (c.from === clickedNote.id && c.to === sourceNote.id)
+    );
+    if (exists) {
+        showToast('この付箋同士は既に接続されています');
+        connectSourceNoteId = null;
+        renderCanvasNotes();
+        return;
+    }
+
+    pushHistory();
+    proj.connections.push({
+        from: sourceNote.id,
+        to: clickedNote.id
+    });
+    saveProjects();
+    connectSourceNoteId = null;
+    document.getElementById('connect-banner-text').textContent = '接続しました！続けてつなぐ場合は1枚目をタップ';
+    renderCanvasNotes();
+    renderConnections();
+    showToast('同じ種類の付箋をつなぎました');
+}
+
+function deleteConnection(index) {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    pushHistory();
+    proj.connections.splice(index, 1);
+    saveProjects();
+    renderConnections();
+    renderDrawerContent();
+    showToast('接続を解除しました');
+}
+
+// ==========================================
+// キャンバス描画・操作（移動・複数選択・ピンチズーム・階層整列）
+// ==========================================
+function setCanvasMode(mode) {
+    canvasMode = mode;
+    if (mode !== 'connect') {
+        connectSourceNoteId = null;
+        document.getElementById('connect-banner').classList.add('hidden');
+    }
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById('mode-' + mode);
+    if (activeBtn) activeBtn.classList.add('active');
+}
+
+function clearSelection() {
+    selectedNoteIds.clear();
+    renderCanvasNotes();
+}
+
+function getNoteColor(proj, note) {
+    if (note.targetId === 'outline') {
+        return proj.outlineColor || '#6366f1';
+    }
+    const char = proj.characters.find(c => c.id === note.targetId);
+    return char ? char.color : '#6366f1';
+}
+
+function getTargetLabel(proj, targetId) {
+    if (targetId === 'outline') return '大筋';
+    const char = proj.characters.find(c => c.id === targetId);
+    if (!char) return '大筋';
+    const name = char.fields.find(f => f.label === 'キャラ名')?.value;
+    return name ? `No.${char.number} ${name}` : `キャラNo.${char.number}`;
+}
+
+function renderCanvasNotes() {
+    const proj = getCurrentProject();
+    const layer = document.getElementById('notes-layer');
+    if (!proj || !layer) return;
+
+    const visibleNotes = proj.notes.filter(n => !n.hidden);
+
+    layer.innerHTML = visibleNotes.map(n => {
+        const color = getNoteColor(proj, n);
+        const label = getTargetLabel(proj, n.targetId);
+        const isSelected = selectedNoteIds.has(n.id);
+        const isConnectSrc = connectSourceNoteId === n.id;
+
+        return `
+            <div data-note-id="${n.id}"
+                 style="left:${n.x}px; top:${n.y}px; border-top: 4px solid ${color};"
+                 class="sticky-note-card bg-white/95 dark:bg-cyber-card/95 backdrop-blur-md border border-slate-200 dark:border-cyber-border shadow-lg p-3 cursor-grab active:cursor-grabbing ${isSelected ? 'selected' : ''} ${isConnectSrc ? 'connect-source' : ''}">
+                <div class="flex items-center justify-between gap-1 mb-1.5">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-white shrink-0" style="background:${color}">#${n.number}</span>
+                        <span class="text-[10px] font-bold truncate" style="color:${color}">${escapeHtml(label)}</span>
+                    </div>
+                    <button onpointerdown="event.stopPropagation()" onclick="openNoteEditModal('${n.id}')" class="p-1 rounded hover:bg-slate-100 dark:hover:bg-cyber-panel text-slate-400 hover:text-purple-400 shrink-0" title="編集">
+                        <i data-lucide="pencil" class="w-3 h-3"></i>
+                    </button>
+                </div>
+                <h4 class="font-bold text-xs mb-1 line-clamp-2">${escapeHtml(n.title)}</h4>
+                ${n.content ? `<p class="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-3 leading-snug mb-2">${escapeHtml(n.content)}</p>` : ''}
+                <div class="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-cyber-border/70 text-[10px] font-mono text-slate-400">
+                    <span>EMO: <strong class="${n.emotion > 0 ? 'text-pink-500' : (n.emotion < 0 ? 'text-indigo-400' : '')}">${n.emotion > 0 ? '+' + n.emotion : n.emotion}</strong></span>
+                    <button onpointerdown="event.stopPropagation()" onclick="toggleNoteVisibility('${n.id}')" class="hover:text-slate-600 dark:hover:text-white" title="フォルダにしまう">収納</button>
+                </div>
             </div>
         `;
+    }).join('');
 
-        const sortedChars = [...story.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+    lucide.createIcons();
+}
 
-        // キャラクターフォルダ一覧
-        if (sortedChars.length > 0) {
-            html += `<div class="grid grid-cols-2 gap-2">`;
-            sortedChars.forEach(char => {
-                const cObj = this.getColorMeta(char.color);
-                const isSelected = selectedChar && selectedChar.id === char.id;
-                html += `
-                    <div onclick="app.selectCharacter('${char.id}')" class="cursor-pointer p-2.5 rounded-xl border transition flex items-center justify-between gap-2 ${isSelected ? 'bg-slate-200/80 dark:bg-slate-800 border-pink-500 shadow-neon-pink' : 'bg-slate-100 dark:bg-cyber-card border-slate-200 dark:border-slate-800 hover:border-slate-500'}">
-                        <div class="flex items-center gap-2 min-w-0">
-                            ${char.image
-                                ? `<img src="${char.image}" alt="${this.escapeHtml(char.name)}" class="w-7 h-7 rounded-full object-cover shrink-0 border-2" style="border-color: ${cObj.hex};">`
-                                : `<span class="w-3.5 h-3.5 rounded-full shrink-0" style="background:${cObj.hex}; box-shadow: 0 0 8px ${cObj.hex};"></span>`
-                            }
-                            <div class="min-w-0">
-                                <span class="text-[10px] font-mono font-bold text-pink-500 block leading-none">No.${char.number ?? 1}</span>
-                                <span class="text-xs font-bold truncate block">${this.escapeHtml(char.name)}</span>
-                            </div>
-                        </div>
-                        <i class="ph-bold ph-caret-right text-xs text-slate-400 shrink-0"></i>
-                    </div>
-                `;
-            });
-            html += `</div>`;
-        } else {
-            html += `
-                <div class="p-5 text-center rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-xs text-slate-400">
-                    キャラクターがまだいません。「新しいキャラを作成」から追加すると、そのキャラ専用の付箋を作れるようになります。
-                </div>
-            `;
+function renderConnections() {
+    const proj = getCurrentProject();
+    const svg = document.getElementById('connections-svg');
+    if (!proj || !svg) return;
+
+    svg.innerHTML = proj.connections.map(conn => {
+        const n1 = proj.notes.find(n => n.id === conn.from && !n.hidden);
+        const n2 = proj.notes.find(n => n.id === conn.to && !n.hidden);
+        if (!n1 || !n2) return '';
+
+        const color = getNoteColor(proj, n1);
+        const x1 = n1.x + 105;
+        const y1 = n1.y + 55;
+        const x2 = n2.x + 105;
+        const y2 = n2.y + 55;
+        const cx = (x1 + x2) / 2;
+        const cy = (y1 + y2) / 2 - 25;
+
+        return `
+            <g>
+                <path d="M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" opacity="0.85" />
+                <circle cx="${x1}" cy="${y1}" r="4.5" fill="${color}" />
+                <circle cx="${x2}" cy="${y2}" r="4.5" fill="${color}" />
+            </g>
+        `;
+    }).join('');
+}
+
+// ==========================================
+// キャンバス Pointer / Touch イベント（ドラッグ固定 & ピンチズーム）
+// ==========================================
+function setupCanvasEvents() {
+    const viewport = document.getElementById('canvas-viewport');
+
+    viewport.addEventListener('pointerdown', (e) => {
+        const noteCard = e.target.closest('.sticky-note-card');
+
+        // 付箋カード上での操作
+        if (noteCard) {
+            e.stopPropagation();
+            const noteId = noteCard.dataset.noteId;
+
+            if (canvasMode === 'connect') {
+                handleNoteClickInConnectMode(noteId);
+                return;
+            }
+
+            if (canvasMode === 'select') {
+                if (selectedNoteIds.has(noteId)) selectedNoteIds.delete(noteId);
+                else selectedNoteIds.add(noteId);
+                renderCanvasNotes();
+                return;
+            }
+
+            // 移動モード：白紙パンをロックして付箋ドラッグ開始
+            draggingNoteId = noteId;
+            hasDraggedMoved = false;
+            dragStartMouseX = e.clientX;
+            dragStartMouseY = e.clientY;
+            dragInitialPositions.clear();
+
+            const proj = getCurrentProject();
+            if (!proj) return;
+
+            if (selectedNoteIds.has(noteId) && selectedNoteIds.size > 1) {
+                // 複数選択中の付箋をまとめて移動
+                selectedNoteIds.forEach(id => {
+                    const n = proj.notes.find(item => item.id === id);
+                    if (n) dragInitialPositions.set(id, { x: n.x, y: n.y });
+                });
+            } else {
+                const n = proj.notes.find(item => item.id === noteId);
+                if (n) dragInitialPositions.set(noteId, { x: n.x, y: n.y });
+            }
+
+            noteCard.setPointerCapture(e.pointerId);
+            return;
         }
 
-        // 選択中キャラクターの詳細設定
-        if (selectedChar) {
-            const currentMeta = this.getColorMeta(selectedChar.color);
-            const draftHex = this.state.pendingCharColorHex || currentMeta.hex;
-            const draftUsed = this.isColorInUse(draftHex, { type: 'character', id: selectedChar.id });
+        // 白紙（何も置かれていない場所）をタップしたとき
+        if (selectedNoteIds.size > 0) {
+            selectedNoteIds.clear();
+            renderCanvasNotes();
+        }
 
+        isPanning = true;
+        panStartX = e.clientX - viewX;
+        panStartY = e.clientY - viewY;
+        viewport.setPointerCapture(e.pointerId);
+    });
+
+    viewport.addEventListener('pointermove', (e) => {
+        // 付箋ドラッグ中（白紙は絶対に動かさない）
+        if (draggingNoteId) {
+            const dx = (e.clientX - dragStartMouseX) / viewScale;
+            const dy = (e.clientY - dragStartMouseY) / viewScale;
+
+            if (!hasDraggedMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+                pushHistory();
+                hasDraggedMoved = true;
+            }
+
+            if (hasDraggedMoved) {
+                const proj = getCurrentProject();
+                if (!proj) return;
+                dragInitialPositions.forEach((initPos, id) => {
+                    const n = proj.notes.find(item => item.id === id);
+                    if (n) {
+                        n.x = Math.max(20, Math.min(5750, Math.round(initPos.x + dx)));
+                        n.y = Math.max(20, Math.min(5750, Math.round(initPos.y + dy)));
+                        const el = document.querySelector(`.sticky-note-card[data-note-id="${id}"]`);
+                        if (el) {
+                            el.style.left = n.x + 'px';
+                            el.style.top = n.y + 'px';
+                        }
+                    }
+                });
+                renderConnections();
+            }
+            return;
+        }
+
+        // 白紙パン操作
+        if (isPanning) {
+            viewX = e.clientX - panStartX;
+            viewY = e.clientY - panStartY;
+            applyViewportTransform();
+        }
+    });
+
+    const endPointer = () => {
+        if (draggingNoteId) {
+            if (hasDraggedMoved) {
+                saveProjects();
+            }
+            draggingNoteId = null;
+            hasDraggedMoved = false;
+        }
+        isPanning = false;
+    };
+
+    viewport.addEventListener('pointerup', endPointer);
+    viewport.addEventListener('pointercancel', endPointer);
+
+    // PCホイールズーム
+    viewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.08 : -0.08;
+        zoomAtPoint(viewScale + delta, e.clientX, e.clientY);
+    }, { passive: false });
+
+    // 2本指ピンチイン・ピンチアウト（iPhone / iPad対応）
+    viewport.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            isPanning = false;
+            draggingNoteId = null;
+            initialPinchDistance = getTouchDistance(e.touches[0], e.touches[1]);
+            initialPinchScale = viewScale;
+        }
+    }, { passive: true });
+
+    viewport.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && initialPinchDistance) {
+            e.preventDefault();
+            const currentDist = getTouchDistance(e.touches[0], e.touches[1]);
+            const scaleFactor = currentDist / initialPinchDistance;
+            const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            zoomAtPoint(initialPinchScale * scaleFactor, midX, midY);
+        }
+    }, { passive: false });
+
+    viewport.addEventListener('touchend', () => {
+        initialPinchDistance = null;
+    });
+}
+
+function getTouchDistance(t1, t2) {
+    return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+}
+
+function zoomAtPoint(newScale, clientX, clientY) {
+    const clamped = Math.max(0.35, Math.min(2.0, newScale));
+    const rect = document.getElementById('canvas-viewport').getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+
+    const worldX = (px - viewX) / viewScale;
+    const worldY = (py - viewY) / viewScale;
+
+    viewScale = clamped;
+    viewX = px - worldX * viewScale;
+    viewY = py - worldY * viewScale;
+    applyViewportTransform();
+}
+
+function zoomBy(delta) {
+    const viewport = document.getElementById('canvas-viewport');
+    const rect = viewport.getBoundingClientRect();
+    zoomAtPoint(viewScale + delta, rect.left + rect.width / 2, rect.top + rect.height / 2);
+}
+
+function applyViewportTransform() {
+    const world = document.getElementById('canvas-world');
+    if (world) {
+        world.style.transform = `translate(${viewX}px, ${viewY}px) scale(${viewScale})`;
+    }
+    const ind = document.getElementById('zoom-indicator');
+    if (ind) {
+        ind.textContent = `${Math.round(viewScale * 100)}%`;
+    }
+}
+
+function resetViewport(notify = true) {
+    const proj = getCurrentProject();
+    const area = document.getElementById('canvas-area');
+    viewScale = 1;
+
+    if (proj && proj.notes.some(n => !n.hidden)) {
+        const visible = proj.notes.filter(n => !n.hidden);
+        const minX = Math.min(...visible.map(n => n.x));
+        const minY = Math.min(...visible.map(n => n.y));
+        viewX = -minX + 60;
+        viewY = -minY + 80;
+    } else {
+        viewX = -2500 + (area ? area.clientWidth / 4 : 100);
+        viewY = -2500 + (area ? area.clientHeight / 4 : 100);
+    }
+
+    applyViewportTransform();
+    if (notify) showToast('視点をリセットしました');
+}
+
+// ==========================================
+// 階層的な番号整列（大筋を最上段、その下にキャラNo.順、左から若い番号順）
+// ==========================================
+function sortNotesByNumber() {
+    const proj = getCurrentProject();
+    if (!proj) return;
+    const visible = proj.notes.filter(n => !n.hidden);
+    if (visible.length === 0) {
+        showToast('整列する付箋がありません');
+        return;
+    }
+
+    pushHistory();
+
+    // 階層順序リスト作成（0: 大筋、1〜: キャラNo.順）
+    const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+    const rowOrder = ['outline', ...sortedChars.map(c => c.id)];
+
+    const startX = 2550;
+    const startY = 2550;
+    const colGap = 240;
+    const rowGap = 185;
+    let currentRow = 0;
+
+    rowOrder.forEach(targetId => {
+        const groupNotes = visible
+            .filter(n => n.targetId === targetId)
+            .sort((a, b) => (a.number || 0) - (b.number || 0));
+
+        if (groupNotes.length > 0) {
+            groupNotes.forEach((note, colIdx) => {
+                note.x = startX + colIdx * colGap;
+                note.y = startY + currentRow * rowGap;
+            });
+            currentRow++;
+        }
+    });
+
+    saveProjects();
+    renderCanvasNotes();
+    renderConnections();
+    resetViewport(false);
+    showToast('大筋を最上段、キャラNo.順に階層整列しました');
+}
+
+// ==========================================
+// エモーションレベルグラフ（総合 / 単体切替・カスタムX軸）
+// ==========================================
+function toggleGraphPanel() {
+    isGraphVisible = !isGraphVisible;
+    const panel = document.getElementById('graph-panel');
+    if (isGraphVisible) {
+        panel.classList.remove('hidden');
+        renderEmotionGraph();
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function setGraphMode(mode) {
+    graphMode = mode;
+    const allBtn = document.getElementById('graph-mode-all');
+    const singleBtn = document.getElementById('graph-mode-single');
+    const selectEl = document.getElementById('graph-target-select');
+
+    if (mode === 'all') {
+        allBtn.classList.add('bg-pink-500', 'text-white');
+        singleBtn.classList.remove('bg-pink-500', 'text-white');
+        selectEl.classList.add('hidden');
+    } else {
+        singleBtn.classList.add('bg-pink-500', 'text-white');
+        allBtn.classList.remove('bg-pink-500', 'text-white');
+        selectEl.classList.remove('hidden');
+    }
+    renderEmotionGraph();
+}
+
+function updateGraphTargetOptions() {
+    const proj = getCurrentProject();
+    const selectEl = document.getElementById('graph-target-select');
+    if (!proj || !selectEl) return;
+    const currentVal = selectEl.value;
+    const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+
+    selectEl.innerHTML = `
+        <option value="outline">大筋</option>
+        ${sortedChars.map(c => {
+            const name = c.fields.find(f => f.label === 'キャラ名')?.value || `キャラNo.${c.number}`;
+            return `<option value="${c.id}">No.${c.number} ${escapeHtml(name)}</option>`;
+        }).join('')}
+    `;
+    if ([...selectEl.options].some(o => o.value === currentVal)) {
+        selectEl.value = currentVal;
+    }
+}
+
+function renderEmotionGraph() {
+    const proj = getCurrentProject();
+    const container = document.getElementById('graph-container');
+    if (!proj || !container || !isGraphVisible) return;
+
+    const isDark = document.documentElement.classList.contains('dark');
+    const axisColor = isDark ? '#475569' : '#cbd5e1';
+    const textColor = isDark ? '#94a3b8' : '#64748b';
+
+    // 表示対象シリーズ構築
+    let seriesList = [];
+    if (graphMode === 'all') {
+        seriesList.push({
+            id: 'outline',
+            label: '大筋',
+            color: proj.outlineColor || '#6366f1',
+            notes: proj.notes.filter(n => !n.hidden && n.targetId === 'outline').sort((a, b) => a.number - b.number)
+        });
+        const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+        sortedChars.forEach(c => {
+            const cNotes = proj.notes.filter(n => !n.hidden && n.targetId === c.id).sort((a, b) => a.number - b.number);
+            if (cNotes.length > 0) {
+                seriesList.push({
+                    id: c.id,
+                    label: getTargetLabel(proj, c.id),
+                    color: c.color,
+                    notes: cNotes
+                });
+            }
+        });
+    } else {
+        const targetId = document.getElementById('graph-target-select').value || 'outline';
+        const color = targetId === 'outline'
+            ? (proj.outlineColor || '#6366f1')
+            : (proj.characters.find(c => c.id === targetId)?.color || '#ec4899');
+        seriesList.push({
+            id: targetId,
+            label: getTargetLabel(proj, targetId),
+            color,
+            notes: proj.notes.filter(n => !n.hidden && n.targetId === targetId).sort((a, b) => a.number - b.number)
+        });
+    }
+
+    const allNumbers = [...new Set(seriesList.flatMap(s => s.notes.map(n => n.number)))].sort((a, b) => a - b);
+
+    if (allNumbers.length === 0) {
+        container.innerHTML = `<div class="w-full h-full flex items-center justify-center text-xs text-slate-400">白紙に付箋を配置すると感情グラフが描画されます</div>`;
+        return;
+    }
+
+    const width = Math.max(container.clientWidth || 600, 320);
+    const height = Math.max(container.clientHeight || 160, 130);
+    const padLeft = 36;
+    const padRight = 24;
+    const padTop = 16;
+    const padBottom = 26;
+    const plotW = width - padLeft - padRight;
+    const plotH = height - padTop - padBottom;
+
+    const getX = (num) => {
+        if (allNumbers.length === 1) return padLeft + plotW / 2;
+        const idx = allNumbers.indexOf(num);
+        return padLeft + (idx / (allNumbers.length - 1)) * plotW;
+    };
+    const getY = (emo) => padTop + ((10 - emo) / 20) * plotH;
+
+    const zeroY = getY(0);
+
+    let svgParts = [];
+    // 背景グリッド線（+10, 0, -10）
+    [10, 0, -10].forEach(val => {
+        const y = getY(val);
+        svgParts.push(`<line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="${axisColor}" stroke-dasharray="${val === 0 ? 'none' : '3 3'}" stroke-width="${val === 0 ? '1.5' : '1'}" />`);
+        svgParts.push(`<text x="${padLeft - 6}" y="${y + 3}" text-anchor="end" font-size="10" font-family="JetBrains Mono" fill="${textColor}">${val > 0 ? '+' + val : val}</text>`);
+    });
+
+    // X軸番号ラベル
+    allNumbers.forEach(num => {
+        const x = getX(num);
+        svgParts.push(`<text x="${x}" y="${height - 6}" text-anchor="middle" font-size="10" font-weight="bold" font-family="JetBrains Mono" fill="${textColor}">#${num}</text>`);
+    });
+
+    // 各シリーズの折れ線とポイント
+    seriesList.forEach(series => {
+        if (series.notes.length === 0) return;
+        const points = series.notes.map(n => `${getX(n.number)},${getY(n.emotion || 0)}`).join(' ');
+        if (series.notes.length > 1) {
+            svgParts.push(`<polyline fill="none" stroke="${series.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${points}" />`);
+        }
+        series.notes.forEach(n => {
+            const cx = getX(n.number);
+            const cy = getY(n.emotion || 0);
+            svgParts.push(`
+                <g class="cursor-pointer" onclick="openNoteEditModal('${n.id}')">
+                    <circle cx="${cx}" cy="${cy}" r="5" fill="${series.color}" stroke="#ffffff" stroke-width="1.5" />
+                    <title>#${n.number} ${escapeHtml(n.title)} (EMO: ${n.emotion})</title>
+                </g>
+            `);
+        });
+    });
+
+    container.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${width} ${height}">${svgParts.join('')}</svg>`;
+}
+
+// ==========================================
+// PDF出力システム（単体出力 ＋ 複数選択一括出力）
+// ==========================================
+function renderPdfDrawer(titleEl, contentEl, proj) {
+    titleEl.innerHTML = `<i data-lucide="file-down" class="w-4 h-4 text-rose-400"></i><span>PDF出力（単体・複数選択）</span>`;
+
+    const sections = [
+        { key: 'template', label: '簡易テンプレート (PSLOC)', desc: '主人公・舞台・欠落・障害・変化', icon: 'layout-template', color: 'text-emerald-500' },
+        { key: 'stage', label: '舞台設定', desc: `${proj.stages.length}項目の世界観・舞台設定`, icon: 'globe', color: 'text-indigo-500' },
+        { key: 'characters', label: 'キャラクター設定', desc: `${proj.characters.length}名の立ち絵・プロフィール`, icon: 'users', color: 'text-pink-500' },
+        { key: 'canvas', label: '付箋が貼られた白紙＆一覧', desc: `全体マップ図 ＋ ${proj.notes.length}枚の付箋リスト`, icon: 'sticky-note', color: 'text-amber-500' },
+        { key: 'graph', label: 'エモーションレベルグラフ', desc: '感情推移チャート（総合・個別）', icon: 'activity', color: 'text-purple-500' }
+    ];
+
+    contentEl.innerHTML = `
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            各項目を<strong>単体でPDF出力</strong>するか、チェックを入れて<strong>複数まとめて1冊の企画書PDF</strong>として出力できます。
+        </p>
+
+        <div class="flex items-center justify-between pt-1">
+            <span class="text-xs font-bold">出力セクション選択</span>
+            <div class="flex items-center gap-2 text-[11px]">
+                <button onclick="toggleAllPdfChecks(true)" class="text-purple-500 dark:text-purple-300 font-bold hover:underline">全選択</button>
+                <span class="text-slate-300">|</span>
+                <button onclick="toggleAllPdfChecks(false)" class="text-slate-400 hover:underline">全解除</button>
+            </div>
+        </div>
+
+        <div class="space-y-2">
+            ${sections.map(sec => `
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-cyber-card border border-slate-200 dark:border-cyber-border flex items-center justify-between gap-2">
+                    <label class="flex items-start gap-2.5 cursor-pointer flex-1 min-w-0">
+                        <input type="checkbox" name="pdf-sec-check" value="${sec.key}" checked class="mt-1 w-4 h-4 rounded accent-purple-600 shrink-0">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5">
+                                <i data-lucide="${sec.icon}" class="w-3.5 h-3.5 ${sec.color} shrink-0"></i>
+                                <span class="font-bold text-xs truncate">${sec.label}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-400 truncate mt-0.5">${sec.desc}</p>
+                        </div>
+                    </label>
+                    <button onclick="exportPdfSections(['${sec.key}'])" class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-cyber-panel border border-slate-200 dark:border-cyber-border hover:border-purple-400 text-[11px] font-bold shrink-0 transition" title="この項目のみPDF出力">
+                        単体出力
+                    </button>
+                </div>
+            `).join('')}
+        </div>
+
+        <button onclick="exportSelectedPdf()" class="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md hover:opacity-95 active:scale-95 transition">
+            <i data-lucide="printer" class="w-4 h-4"></i>
+            <span>選択した項目をまとめてPDF出力</span>
+        </button>
+
+        <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-400/20 text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            <strong>iPhone / iPadでの保存手順：</strong><br>
+            印刷画面が開いたら、プレビュー画像を<strong>2本指でピンチアウト（拡大）</strong>するか、右上の共有ボタンから「ファイルに保存」を選ぶとPDFとして保存できます。
+        </div>
+    `;
+}
+
+function toggleAllPdfChecks(checked) {
+    document.querySelectorAll('input[name="pdf-sec-check"]').forEach(cb => {
+        cb.checked = checked;
+    });
+}
+
+function exportSelectedPdf() {
+    const selected = [...document.querySelectorAll('input[name="pdf-sec-check"]:checked')].map(cb => cb.value);
+    if (selected.length === 0) {
+        showToast('出力する項目を1つ以上選択してください');
+        return;
+    }
+    exportPdfSections(selected);
+}
+
+function exportPdfSections(sectionKeys) {
+    const proj = getCurrentProject();
+    if (!proj) return;
+
+    const printContainer = document.getElementById('pdf-print-container');
+    const dateStr = new Date().toLocaleDateString('ja-JP');
+
+    let html = `
+        <div style="border-bottom: 2px solid #8b5cf6; padding-bottom: 12px; margin-bottom: 20px;">
+            <div style="font-size: 10px; color: #8b5cf6; font-weight: bold; letter-spacing: 0.1em;">CHRONOPLOT STORY ARCHITECTURE</div>
+            <h1 style="font-size: 22px; font-weight: bold; margin: 4px 0; color: #0f172a;">${escapeHtml(proj.title)}</h1>
+            ${proj.memo ? `<p style="font-size: 12px; color: #475569; margin: 4px 0;">${escapeHtml(proj.memo)}</p>` : ''}
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">出力日: ${dateStr}</div>
+        </div>
+    `;
+
+    sectionKeys.forEach((key, index) => {
+        const breakClass = index > 0 ? 'pdf-section-break' : '';
+
+        if (key === 'template') {
+            const t = proj.template || { P: '', S: '', L: '', O: '', C: '' };
+            const items = [
+                { code: 'P', title: '主人公（Protagonist）', val: t.P, color: '#10b981' },
+                { code: 'S', title: '舞台（Setting）', val: t.S, color: '#6366f1' },
+                { code: 'L', title: '欠落（Lack）', val: t.L, color: '#ec4899' },
+                { code: 'O', title: '障害（Obstacle）', val: t.O, color: '#f59e0b' },
+                { code: 'C', title: '変化（Change）', val: t.C, color: '#8b5cf6' }
+            ];
             html += `
-                <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
-                    <!-- キャラクター基本情報（キャラナンバー・名前・削除） -->
-                    <div class="flex items-center justify-between gap-2">
-                        <div class="w-20 shrink-0">
-                            <label class="block text-[10px] font-bold text-slate-400 mb-1">キャラNo.</label>
-                            <input type="number" min="1" value="${selectedChar.number ?? 1}" onchange="app.updateCharacterNumber('${selectedChar.id}', this.value)" class="w-full font-mono font-bold text-sm bg-slate-100 dark:bg-slate-900 px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 focus:border-pink-500 focus:outline-none text-center">
-                        </div>
-                        <div class="flex-1">
-                            <label class="block text-[10px] font-bold text-slate-400 mb-1">キャラクター名</label>
-                            <input type="text" value="${this.escapeHtml(selectedChar.name)}" onchange="app.updateCharacterName('${selectedChar.id}', this.value)" class="w-full font-bold text-sm bg-slate-100 dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 focus:border-pink-500 focus:outline-none">
-                        </div>
-                        <button onclick="app.deleteCharacter('${selectedChar.id}')" class="mt-4 p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition" title="キャラを削除">
-                            <i class="ph-bold ph-trash"></i>
-                        </button>
-                    </div>
-
-                    <!-- キャラクター画像挿入エリア -->
-                    <div class="p-3 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800">
-                        <div class="flex items-center justify-between mb-2">
-                            <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400">キャラクター画像</label>
-                            ${selectedChar.image ? `
-                                <button type="button" onclick="app.removeCharacterImage('${selectedChar.id}')" class="text-[10px] font-bold text-rose-500 hover:underline flex items-center gap-0.5">
-                                    <i class="ph-bold ph-trash"></i> 画像を削除
-                                </button>
-                            ` : ''}
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <div class="w-16 h-16 rounded-xl bg-slate-200 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
-                                ${selectedChar.image
-                                    ? `<img src="${selectedChar.image}" alt="キャラ画像" class="w-full h-full object-cover">`
-                                    : `<i class="ph-duotone ph-user-focus text-3xl text-slate-400"></i>`
-                                }
-                            </div>
-                            <div class="flex-1 space-y-1.5">
-                                <label class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-500/15 hover:bg-pink-500/25 text-pink-600 dark:text-cyber-pink border border-pink-500/40 text-xs font-bold transition">
-                                    <i class="ph-bold ph-image"></i>
-                                    <span>${selectedChar.image ? '画像を変更' : '画像を選択'}</span>
-                                    <input type="file" accept="image/*" class="hidden" onchange="app.handleCharacterImageUpload('${selectedChar.id}', event)">
-                                </label>
-                                <p class="text-[10px] text-slate-400 leading-tight">立ち絵やアイコン画像を設定できます</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 付箋カラー選択（左端に自由選択ボタン ＋ 「この色を適用」確定ボタン） -->
-                    <div class="p-3 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800 space-y-2.5">
-                        <div class="flex items-center justify-between">
-                            <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400">付箋カラー設定</label>
-                            <span class="text-[10px] font-mono text-slate-400">現在: ${currentMeta.hex.toUpperCase()}</span>
-                        </div>
-
-                        <!-- カラー選択パレット（左端がカラーピッカー） -->
-                        <div class="flex flex-wrap items-center gap-2">
-                            <label class="cursor-pointer w-8 h-8 rounded-full border-2 flex items-center justify-center overflow-hidden relative transition ${this.state.pendingCharColorHex ? 'border-white scale-110 shadow-lg' : 'border-slate-400 dark:border-slate-500 hover:scale-105'}" style="background: conic-gradient(from 0deg, #ff007f, #ffb703, #00f59b, #00f0ff, #c084fc, #ff007f);" title="好きな色を自由に選ぶ">
-                                <i class="ph-bold ph-eyedropper text-white text-xs drop-shadow"></i>
-                                <input type="color" value="${draftHex}" oninput="app.previewCharacterCustomColor(this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer">
-                            </label>
-                            ${Object.values(this.COLORS).map(c => {
-                                const isUsed = this.isColorInUse(c.id, { type: 'character', id: selectedChar.id });
-                                const isSelectedColor = this.normalizeHex(draftHex) === this.normalizeHex(c.hex);
-                                return `
-                                    <button type="button" onclick="app.previewCharacterPresetColor('${c.id}')" class="relative w-7 h-7 rounded-full border-2 transition ${isSelectedColor ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-80 hover:opacity-100'} ${isUsed ? 'cursor-not-allowed opacity-35' : ''}" style="background:${c.hex};" title="${isUsed ? c.name + '（他で使用中・使用不可）' : c.name}">
-                                        ${isUsed ? '<i class="ph-bold ph-prohibit text-slate-950 text-xs absolute inset-0 flex items-center justify-center"></i>' : ''}
-                                    </button>
-                                `;
-                            }).join('')}
-                        </div>
-
-                        <!-- 選択候補プレビュー ＆ 「この色を適用」確定ボタン -->
-                        <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/70">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <span id="char-color-draft-swatch" class="w-5 h-5 rounded-md border border-white/40 shrink-0" style="background:${draftHex};"></span>
-                                <span id="char-color-draft-label" class="font-mono text-xs font-bold truncate">${draftHex.toUpperCase()}</span>
-                                ${draftUsed ? '<span class="text-[10px] font-bold text-rose-500 shrink-0">使用不可</span>' : ''}
-                            </div>
-                            <button type="button" onclick="app.applyCharacterColor('${selectedChar.id}')" class="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold shadow-neon-pink shrink-0 transition">
-                                この色を適用
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- キャラ詳細設定枠（追加・削除可能） -->
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold text-slate-500 dark:text-slate-400">詳細プロフィール枠</span>
-                        <button onclick="app.addCharacterSection('${selectedChar.id}')" class="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold flex items-center gap-1">
-                            <i class="ph-bold ph-plus"></i> 枠を追加
-                        </button>
-                    </div>
-
-                    <div class="space-y-2.5">
-                        ${selectedChar.sections.map(sec => `
-                            <div class="p-3 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800 space-y-1.5">
-                                <div class="flex items-center justify-between gap-2">
-                                    <input type="text" value="${this.escapeHtml(sec.title)}" onchange="app.updateCharacterSection('${selectedChar.id}', '${sec.id}', 'title', this.value)" class="font-bold text-xs bg-transparent border-b border-slate-300 dark:border-slate-700 focus:border-pink-500 focus:outline-none py-0.5 flex-1 text-pink-600 dark:text-cyber-pink">
-                                    <button onclick="app.deleteCharacterSection('${selectedChar.id}', '${sec.id}')" class="text-slate-400 hover:text-rose-500 p-1" title="この項目を削除"><i class="ph ph-trash"></i></button>
-                                </div>
-                                <textarea rows="2" onchange="app.updateCharacterSection('${selectedChar.id}', '${sec.id}', 'content', this.value)" placeholder="内容を記述..." class="w-full text-xs bg-white dark:bg-cyber-panel p-2 rounded-lg border border-slate-200 dark:border-slate-800 focus:border-pink-500 focus:outline-none">${this.escapeHtml(sec.content)}</textarea>
+                <div class="${breakClass}" style="margin-bottom: 24px;">
+                    <h2 style="font-size: 15px; font-weight: bold; border-left: 4px solid #10b981; padding-left: 8px; margin-bottom: 12px;">簡易テンプレート（PSLOC）</h2>
+                    <div style="display: grid; gap: 10px;">
+                        ${items.map(it => `
+                            <div class="pdf-avoid-break" style="border: 1px solid #e2e8f0; border-left: 4px solid ${it.color}; border-radius: 8px; padding: 10px 12px; background: #f8fafc;">
+                                <div style="font-size: 11px; font-weight: bold; color: ${it.color}; margin-bottom: 4px;">${it.code}：${it.title}</div>
+                                <div style="font-size: 12px; white-space: pre-wrap; color: #1e293b;">${escapeHtml(it.val || '（未記述）')}</div>
                             </div>
                         `).join('')}
                     </div>
@@ -1072,1708 +1915,259 @@ class ChronoPlotApp {
             `;
         }
 
-        container.innerHTML = html;
-    }
-
-    createCharacter() {
-        const story = this.getCurrentStory();
-        this.pushHistory();
-        const assignedColor = this.getFirstAvailableColorKey();
-        const baseId = Date.now();
-        const maxNum = story.characters.reduce((max, c) => Math.max(max, c.number || 0), 0);
-        const newChar = {
-            id: 'char_' + baseId,
-            number: maxNum + 1,
-            name: `新規キャラ${story.characters.length + 1}`,
-            color: assignedColor,
-            image: null,
-            sections: [
-                { id: `cs_${baseId}_1`, title: 'キャラクター名', content: '' },
-                { id: `cs_${baseId}_2`, title: '性別', content: '' },
-                { id: `cs_${baseId}_3`, title: '種族', content: '' },
-                { id: `cs_${baseId}_4`, title: '年齢', content: '' },
-                { id: `cs_${baseId}_5`, title: '身長', content: '' },
-                { id: `cs_${baseId}_6`, title: '職業', content: '' },
-                { id: `cs_${baseId}_7`, title: '特徴', content: '' }
-            ]
-        };
-        story.characters.push(newChar);
-        this.state.selectedCharId = newChar.id;
-        this.state.pendingCharColorHex = null;
-        this.saveData();
-        this.updateGraphFilterOptions();
-        this.renderDrawer();
-        this.showToast('キャラクターを追加しました');
-    }
-
-    selectCharacter(charId) {
-        this.state.selectedCharId = charId;
-        this.state.pendingCharColorHex = null;
-        this.renderDrawer();
-    }
-
-    updateCharacterNumber(charId, val) {
-        const story = this.getCurrentStory();
-        const char = story.characters.find(c => c.id === charId);
-        const num = Math.max(1, parseInt(val, 10) || 1);
-        if (char && char.number !== num) {
-            this.pushHistory();
-            char.number = num;
-            this.saveData();
-            this.updateGraphFilterOptions();
-            this.renderDrawer();
-            this.renderCanvas();
-            this.showToast(`キャラNo.を ${num} に変更しました`);
-        }
-    }
-
-    updateCharacterName(charId, newName) {
-        const story = this.getCurrentStory();
-        const char = story.characters.find(c => c.id === charId);
-        if (char && newName.trim() && char.name !== newName.trim()) {
-            this.pushHistory();
-            char.name = newName.trim();
-            this.saveData();
-            this.updateGraphFilterOptions();
-            this.renderDrawer();
-            this.renderCanvas();
-            this.renderEmotionGraph();
-        }
-    }
-
-    handleCharacterImageUpload(charId, event) {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const maxSize = 320;
-                let width = img.width;
-                let height = img.height;
-
-                if (width > height && width > maxSize) {
-                    height = Math.round((height * maxSize) / width);
-                    width = maxSize;
-                } else if (height > maxSize) {
-                    width = Math.round((width * maxSize) / height);
-                    height = maxSize;
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                const dataUrl = canvas.toDataURL('image/webp', 0.85);
-                const story = this.getCurrentStory();
-                const char = story.characters.find(c => c.id === charId);
-                if (char) {
-                    this.pushHistory();
-                    char.image = dataUrl;
-                    this.saveData();
-                    this.renderDrawer();
-                    this.renderCanvas();
-                    this.showToast('キャラクター画像を設定しました');
-                }
-            };
-            img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-    }
-
-    removeCharacterImage(charId) {
-        const story = this.getCurrentStory();
-        const char = story.characters.find(c => c.id === charId);
-        if (char) {
-            this.pushHistory();
-            char.image = null;
-            this.saveData();
-            this.renderDrawer();
-            this.renderCanvas();
-            this.showToast('キャラクター画像を削除しました');
-        }
-    }
-
-    previewCharacterCustomColor(hexValue) {
-        this.state.pendingCharColorHex = hexValue;
-        const swatch = document.getElementById('char-color-draft-swatch');
-        const label = document.getElementById('char-color-draft-label');
-        if (swatch) swatch.style.background = hexValue;
-        if (label) label.textContent = hexValue.toUpperCase();
-    }
-
-    previewCharacterPresetColor(colorKey) {
-        const meta = this.getColorMeta(colorKey);
-        this.state.pendingCharColorHex = meta.hex;
-        this.renderDrawer();
-    }
-
-    applyCharacterColor(charId) {
-        const story = this.getCurrentStory();
-        const char = story.characters.find(c => c.id === charId);
-        if (!char) return;
-
-        const targetColor = this.state.pendingCharColorHex || this.getColorMeta(char.color).hex;
-
-        if (this.isColorInUse(targetColor, { type: 'character', id: charId })) {
-            this.showToast('この色はすでに別の設定で使用されているため使用不可です', 'error');
-            return;
-        }
-
-        const matchedPreset = Object.values(this.COLORS).find(c => this.normalizeHex(c.hex) === this.normalizeHex(targetColor));
-        this.pushHistory();
-        char.color = matchedPreset ? matchedPreset.id : targetColor;
-        this.state.pendingCharColorHex = null;
-
-        this.saveData();
-        this.renderDrawer();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        this.showToast('キャラクターの付箋カラーを適用しました');
-    }
-
-    addCharacterSection(charId) {
-        const story = this.getCurrentStory();
-        const char = story.characters.find(c => c.id === charId);
-        if (char) {
-            this.pushHistory();
-            char.sections.push({ id: 'cs_' + Date.now(), title: '追加項目', content: '' });
-            this.saveData();
-            this.renderDrawer();
-        }
-    }
-
-    updateCharacterSection(charId, secId, field, value) {
-        const story = this.getCurrentStory();
-        const char = story.characters.find(c => c.id === charId);
-        const sec = char?.sections.find(s => s.id === secId);
-        if (sec && sec[field] !== value) {
-            this.pushHistory();
-            sec[field] = value;
-            this.saveData();
-        }
-    }
-
-    deleteCharacterSection(charId, secId) {
-        const story = this.getCurrentStory();
-        const char = story.characters.find(c => c.id === charId);
-        if (char) {
-            this.pushHistory();
-            char.sections = char.sections.filter(s => s.id !== secId);
-            this.saveData();
-            this.renderDrawer();
-        }
-    }
-
-    deleteCharacter(charId) {
-        const story = this.getCurrentStory();
-        this.pushHistory();
-        story.characters = story.characters.filter(c => c.id !== charId);
-        story.stickies.forEach(st => {
-            if (st.targetType === 'character' && st.targetId === charId) {
-                st.targetType = 'main';
-                st.targetId = 'main';
-            }
-        });
-        this.state.selectedCharId = story.characters[0]?.id || null;
-        this.state.pendingCharColorHex = null;
-        if (this.state.stickyFolderFilter === charId) {
-            this.state.stickyFolderFilter = 'all';
-        }
-        this.saveData();
-        this.updateGraphFilterOptions();
-        this.renderDrawer();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        this.showToast('キャラクターを削除しました');
-    }
-
-    // ==================== 大筋付箋の共通カラー設定 ====================
-    previewMainCustomColor(hexValue) {
-        this.state.pendingMainColorHex = hexValue;
-        const swatch = document.getElementById('main-color-draft-swatch');
-        const label = document.getElementById('main-color-draft-label');
-        if (swatch) swatch.style.background = hexValue;
-        if (label) label.textContent = hexValue.toUpperCase();
-    }
-
-    previewMainPresetColor(colorKey) {
-        const meta = this.getColorMeta(colorKey);
-        this.state.pendingMainColorHex = meta.hex;
-        this.renderDrawer();
-    }
-
-    applyMainColor() {
-        const story = this.getCurrentStory();
-        if (!story) return;
-
-        const currentMainMeta = this.getColorMeta(story.mainColor || 'cyan');
-        const targetColor = this.state.pendingMainColorHex || currentMainMeta.hex;
-
-        if (this.isColorInUse(targetColor, { type: 'main' })) {
-            this.showToast('この色はすでにキャラクター設定で使用されているため使用不可です', 'error');
-            return;
-        }
-
-        const matchedPreset = Object.values(this.COLORS).find(c => this.normalizeHex(c.hex) === this.normalizeHex(targetColor));
-        this.pushHistory();
-        story.mainColor = matchedPreset ? matchedPreset.id : targetColor;
-        this.state.pendingMainColorHex = null;
-
-        this.saveData();
-        this.renderDrawer();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        this.showToast('大筋付箋のカラーを変更しました');
-    }
-
-    // ==================== 機能3: 付箋作成＆種類別フォルダ一覧管理 ====================
-    setStickyFolderFilter(filterVal) {
-        this.state.stickyFolderFilter = filterVal;
-        this.renderDrawer();
-    }
-
-    renderStickiesDrawer(container, story) {
-        const nextNum = story.stickies.length > 0
-            ? Math.max(...story.stickies.map(s => Number(s.number) || 0)) + 1
-            : 1;
-
-        const mainMeta = this.getColorMeta(story.mainColor || 'cyan');
-        const draftMainHex = this.state.pendingMainColorHex || mainMeta.hex;
-        const draftMainUsed = this.isColorInUse(draftMainHex, { type: 'main' });
-
-        const sortedChars = [...story.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
-
-        let targetOptions = `<option value="main">大筋（メインプロット）</option>`;
-        sortedChars.forEach(char => {
-            targetOptions += `<option value="char:${char.id}">キャラ [No.${char.number ?? 1}]：${this.escapeHtml(char.name)}</option>`;
-        });
-
-        // 種類別フォルダフィルタの有効性チェック
-        const activeFilter = this.state.stickyFolderFilter || 'all';
-        const mainCount = story.stickies.filter(s => s.targetType === 'main').length;
-
-        // 種類別フォルダタブ生成
-        let folderTabsHtml = `
-            <button type="button" onclick="app.setStickyFolderFilter('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${activeFilter === 'all' ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'}">
-                <i class="ph-bold ph-folders"></i> すべて (${story.stickies.length})
-            </button>
-            <button type="button" onclick="app.setStickyFolderFilter('main')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${activeFilter === 'main' ? 'text-slate-950 shadow' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'}" style="${activeFilter === 'main' ? `background:${mainMeta.hex};` : ''}">
-                <span class="w-2 h-2 rounded-full" style="background:${activeFilter === 'main' ? '#0f172a' : mainMeta.hex};"></span>
-                大筋 (${mainCount})
-            </button>
-        `;
-
-        sortedChars.forEach(char => {
-            const cMeta = this.getColorMeta(char.color);
-            const cCount = story.stickies.filter(s => s.targetType === 'character' && s.targetId === char.id).length;
-            const isCharTabActive = activeFilter === char.id;
-            folderTabsHtml += `
-                <button type="button" onclick="app.setStickyFolderFilter('${char.id}')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${isCharTabActive ? 'text-slate-950 shadow' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'}" style="${isCharTabActive ? `background:${cMeta.hex};` : ''}">
-                    <span class="w-2 h-2 rounded-full" style="background:${isCharTabActive ? '#0f172a' : cMeta.hex};"></span>
-                    [No.${char.number ?? 1}] ${this.escapeHtml(char.name)} (${cCount})
-                </button>
-            `;
-        });
-
-        let html = `
-            <!-- 大筋付箋の共通カラー設定 -->
-            <div class="p-3 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800 space-y-2.5">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-cyan-600 dark:text-cyber-cyan flex items-center gap-1">
-                        <i class="ph-bold ph-palette"></i> 大筋付箋の共通カラー
-                    </span>
-                    <span class="text-[10px] font-mono text-slate-400">現在: ${mainMeta.hex.toUpperCase()}</span>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-2">
-                    <label class="cursor-pointer w-8 h-8 rounded-full border-2 flex items-center justify-center overflow-hidden relative transition ${this.state.pendingMainColorHex ? 'border-white scale-110 shadow-lg' : 'border-slate-400 dark:border-slate-500 hover:scale-105'}" style="background: conic-gradient(from 0deg, #ff007f, #ffb703, #00f59b, #00f0ff, #c084fc, #ff007f);" title="好きな色を自由に選ぶ">
-                        <i class="ph-bold ph-eyedropper text-white text-xs drop-shadow"></i>
-                        <input type="color" value="${draftMainHex}" oninput="app.previewMainCustomColor(this.value)" class="opacity-0 absolute inset-0 w-full h-full cursor-pointer">
-                    </label>
-                    ${Object.values(this.COLORS).map(c => {
-                        const isUsed = this.isColorInUse(c.id, { type: 'main' });
-                        const isSelectedColor = this.normalizeHex(draftMainHex) === this.normalizeHex(c.hex);
-                        return `
-                            <button type="button" onclick="app.previewMainPresetColor('${c.id}')" class="relative w-7 h-7 rounded-full border-2 transition ${isSelectedColor ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-80 hover:opacity-100'} ${isUsed ? 'cursor-not-allowed opacity-35' : ''}" style="background:${c.hex};" title="${isUsed ? c.name + '（他で使用中・使用不可）' : c.name}">
-                                ${isUsed ? '<i class="ph-bold ph-prohibit text-slate-950 text-xs absolute inset-0 flex items-center justify-center"></i>' : ''}
-                            </button>
-                        `;
-                    }).join('')}
-                </div>
-
-                <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/70">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <span id="main-color-draft-swatch" class="w-5 h-5 rounded-md border border-white/40 shrink-0" style="background:${draftMainHex};"></span>
-                        <span id="main-color-draft-label" class="font-mono text-xs font-bold truncate">${draftMainHex.toUpperCase()}</span>
-                        ${draftMainUsed ? '<span class="text-[10px] font-bold text-rose-500 shrink-0">使用不可</span>' : ''}
-                    </div>
-                    <button type="button" onclick="app.applyMainColor()" class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-neon-cyan shrink-0 transition">
-                        この色を適用
-                    </button>
-                </div>
-            </div>
-
-            <!-- 付箋新規作成フォーム -->
-            <div class="p-3.5 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800 space-y-3">
-                <div class="text-xs font-bold text-emerald-600 dark:text-cyber-emerald flex items-center gap-1.5">
-                    <i class="ph-bold ph-plus-circle"></i> 新しい付箋を作成
-                </div>
-
-                <div class="grid grid-cols-3 gap-2">
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-400 mb-1">番号 (No.)</label>
-                        <input id="new-sticky-num" type="number" min="1" value="${nextNum}" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono font-bold focus:border-emerald-500 focus:outline-none">
-                    </div>
-                    <div class="col-span-2">
-                        <label class="block text-[10px] font-bold text-slate-400 mb-1">対象（大筋 / キャラ）</label>
-                        <select id="new-sticky-target" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-semibold focus:border-emerald-500 focus:outline-none">
-                            ${targetOptions}
-                        </select>
-                    </div>
-                </div>
-
-                <!-- エモーションレベル -->
-                <div>
-                    <div class="flex items-center justify-between mb-1">
-                        <label class="text-[10px] font-bold text-slate-400">エモーションレベル（盛り上がり / 落ち込み）</label>
-                        <span id="new-sticky-emo-val" class="font-mono text-xs font-bold text-cyan-500">0</span>
-                    </div>
-                    <input id="new-sticky-emo" type="range" min="-100" max="100" value="0" oninput="document.getElementById('new-sticky-emo-val').textContent = (this.value > 0 ? '+' + this.value : this.value)" class="w-full">
-                    <div class="flex justify-between text-[9px] font-mono text-slate-400 mt-0.5">
-                        <span>-100 (絶望・落ち込み)</span>
-                        <span>0</span>
-                        <span>+100 (最高潮)</span>
-                    </div>
-                </div>
-
-                <!-- 内容 -->
-                <div>
-                    <label class="block text-[10px] font-bold text-slate-400 mb-1">出来事・行動の内容</label>
-                    <textarea id="new-sticky-content" rows="2" placeholder="例：主人公が敵の罠に気づき、仲間を庇う" class="w-full px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs focus:border-emerald-500 focus:outline-none"></textarea>
-                </div>
-
-                <button onclick="app.createSticky()" class="w-full py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition flex items-center justify-center gap-1.5">
-                    <i class="ph-bold ph-note-pencil"></i> 付箋を作成して白紙に出す
-                </button>
-            </div>
-
-            <!-- 種類別フォルダ一覧 -->
-            <div class="space-y-2.5 pt-2">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                        <i class="ph-duotone ph-folder"></i> 付箋フォルダ（種類別一覧）
-                    </span>
-                    <span class="text-[10px] text-slate-400">出し入れ管理</span>
-                </div>
-
-                <!-- 種類別フォルダ切替タブ -->
-                <div class="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-100 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800">
-                    ${folderTabsHtml}
-                </div>
-        `;
-
-        // 種類別にグループ化して表示
-        const renderStickyCardItem = (st) => {
-            const meta = this.getStickyMeta(story, st);
-            const emoText = st.emotion > 0 ? `+${st.emotion}` : `${st.emotion}`;
-            return `
-                <div class="p-3 rounded-xl bg-slate-100 dark:bg-cyber-card border border-slate-200 dark:border-slate-800 flex flex-col gap-2">
-                    <div class="flex items-center justify-between gap-2">
-                        <div class="flex items-center gap-1.5 min-w-0">
-                            <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-slate-950" style="background:${meta.colorObj.hex};">#${st.number}</span>
-                            <span class="text-[11px] font-bold truncate" style="color:${meta.colorObj.hex};">${this.escapeHtml(meta.label)}</span>
+        if (key === 'stage') {
+            html += `
+                <div class="${breakClass}" style="margin-bottom: 24px;">
+                    <h2 style="font-size: 15px; font-weight: bold; border-left: 4px solid #6366f1; padding-left: 8px; margin-bottom: 12px;">舞台設定</h2>
+                    ${proj.stages.length === 0 ? '<p style="font-size:12px; color:#64748b;">舞台設定は登録されていません。</p>' : `
+                        <div style="display: grid; gap: 10px;">
+                            ${proj.stages.map(s => `
+                                <div class="pdf-avoid-break" style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px;">
+                                    <div style="font-size: 12px; font-weight: bold; color: #4f46e5; margin-bottom: 4px;">${escapeHtml(s.title)}</div>
+                                    <div style="font-size: 12px; white-space: pre-wrap; color: #334155;">${escapeHtml(s.content || '（未記述）')}</div>
+                                </div>
+                            `).join('')}
                         </div>
-                        <span class="font-mono text-[11px] font-bold ${st.emotion >= 0 ? 'text-cyan-500' : 'text-pink-500'}">EMO: ${emoText}</span>
-                    </div>
-                    <p class="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">${this.escapeHtml(st.content)}</p>
-                    <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-200 dark:border-slate-800/80">
-                        <button onclick="app.openEditStickyModal('${st.id}')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1" title="付箋の内容を編集">
-                            <i class="ph-bold ph-pencil-simple"></i> 編集
-                        </button>
-                        <button onclick="app.toggleStickyPlaced('${st.id}')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition ${st.placed ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25' : 'bg-cyan-500/15 text-cyan-600 dark:text-cyber-cyan hover:bg-cyan-500/25'}">
-                            <i class="ph-bold ${st.placed ? 'ph-eye-slash' : 'ph-push-pin'}"></i>
-                            <span>${st.placed ? 'しまう' : '白紙に出す'}</span>
-                        </button>
-                        <button onclick="app.deleteSticky('${st.id}')" class="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10" title="削除">
-                            <i class="ph ph-trash"></i>
-                        </button>
-                    </div>
+                    `}
                 </div>
             `;
-        };
+        }
 
-        if (story.stickies.length === 0) {
-            html += `<div class="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-800 rounded-xl">作成された付箋はまだありません。</div>`;
-        } else if (activeFilter === 'all') {
-            // 種類別フォルダセクションごとに整理して一覧表示
-            const folderGroups = [];
-            const mainList = story.stickies.filter(s => s.targetType === 'main').sort((a, b) => a.number - b.number);
-            if (mainList.length > 0) {
-                folderGroups.push({
-                    title: '大筋フォルダ',
-                    color: mainMeta.hex,
-                    items: mainList
-                });
-            }
-            sortedChars.forEach(char => {
-                const charList = story.stickies.filter(s => s.targetType === 'character' && s.targetId === char.id).sort((a, b) => a.number - b.number);
-                if (charList.length > 0) {
-                    folderGroups.push({
-                        title: `[No.${char.number ?? 1}] ${char.name} フォルダ`,
-                        color: this.getColorMeta(char.color).hex,
-                        items: charList
-                    });
-                }
-            });
-
-            folderGroups.forEach(grp => {
-                html += `
-                    <div class="space-y-2 pt-1">
-                        <div class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-200/70 dark:bg-slate-800/80 border-l-4" style="border-left-color: ${grp.color};">
-                            <span class="text-xs font-bold flex items-center gap-1.5" style="color: ${grp.color};">
-                                <i class="ph-fill ph-folder-open"></i> ${this.escapeHtml(grp.title)}
-                            </span>
-                            <span class="text-[10px] font-mono text-slate-500 dark:text-slate-400">${grp.items.length}枚</span>
+        if (key === 'characters') {
+            const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+            html += `
+                <div class="${breakClass}" style="margin-bottom: 24px;">
+                    <h2 style="font-size: 15px; font-weight: bold; border-left: 4px solid #ec4899; padding-left: 8px; margin-bottom: 12px;">キャラクター設定</h2>
+                    ${sortedChars.length === 0 ? '<p style="font-size:12px; color:#64748b;">キャラクターは登録されていません。</p>' : `
+                        <div style="display: grid; gap: 12px;">
+                            ${sortedChars.map(c => {
+                                const name = c.fields.find(f => f.label === 'キャラ名')?.value || '名称未設定';
+                                return `
+                                    <div class="pdf-avoid-break" style="border: 1px solid #e2e8f0; border-top: 4px solid ${c.color}; border-radius: 10px; padding: 12px; display: flex; gap: 12px; align-items: flex-start;">
+                                        ${c.image ? `<img src="${c.image}" style="width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #cbd5e1; flex-shrink: 0;">` : ''}
+                                        <div style="flex: 1;">
+                                            <div style="font-size: 13px; font-weight: bold; margin-bottom: 6px;">
+                                                <span style="background:${c.color}; color:#fff; padding: 1px 6px; border-radius: 4px; font-size: 10px; margin-right: 6px;">No.${c.number || '-'}</span>
+                                                ${escapeHtml(name)}
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; font-size: 11px;">
+                                                ${c.fields.map(f => `
+                                                    <div><strong style="color:#64748b;">${escapeHtml(f.label)}:</strong> ${escapeHtml(f.value || '-')}</div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
                         </div>
-                        <div class="space-y-2 pl-1">
-                            ${grp.items.map(renderStickyCardItem).join('')}
-                        </div>
-                    </div>
-                `;
-            });
-        } else {
-            const filteredList = story.stickies
-                .filter(s => activeFilter === 'main' ? s.targetType === 'main' : (s.targetType === 'character' && s.targetId === activeFilter))
-                .sort((a, b) => a.number - b.number);
-
-            if (filteredList.length === 0) {
-                html += `<div class="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-800 rounded-xl">このフォルダにはまだ付箋がありません。</div>`;
-            } else {
-                html += `<div class="space-y-2">${filteredList.map(renderStickyCardItem).join('')}</div>`;
-            }
-        }
-
-        html += `</div>`;
-        container.innerHTML = html;
-    }
-
-    createSticky() {
-        const story = this.getCurrentStory();
-        const num = parseInt(document.getElementById('new-sticky-num').value, 10) || 1;
-        const targetVal = document.getElementById('new-sticky-target').value;
-        const emotion = parseInt(document.getElementById('new-sticky-emo').value, 10) || 0;
-        const content = document.getElementById('new-sticky-content').value.trim();
-
-        if (!content) {
-            this.showToast('付箋の内容を入力してください', 'error');
-            return;
-        }
-
-        let targetType = 'main';
-        let targetId = 'main';
-        if (targetVal.startsWith('char:')) {
-            targetType = 'character';
-            targetId = targetVal.split(':')[1];
-        }
-
-        const viewport = document.getElementById('canvas-viewport');
-        const offsetIdx = story.stickies.filter(s => s.placed).length;
-        const spawnX = Math.max(200, Math.round((viewport.scrollLeft + 100) / this.state.zoom) + (offsetIdx % 4) * 35);
-        const spawnY = Math.max(200, Math.round((viewport.scrollTop + 100) / this.state.zoom) + (offsetIdx % 4) * 35);
-
-        this.pushHistory();
-        const newSticky = {
-            id: 'st_' + Date.now(),
-            number: num,
-            targetType: targetType,
-            targetId: targetId,
-            emotion: emotion,
-            content: content,
-            placed: true,
-            x: spawnX,
-            y: spawnY
-        };
-
-        story.stickies.push(newSticky);
-        this.saveData();
-        this.renderDrawer();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        this.showToast(`付箋 #${num} を作成しました`);
-    }
-
-    openEditStickyModal(stickyId) {
-        const story = this.getCurrentStory();
-        const st = story?.stickies.find(s => s.id === stickyId);
-        if (!st) return;
-
-        const sortedChars = [...story.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
-
-        let targetOptions = `<option value="main" ${st.targetType === 'main' ? 'selected' : ''}>大筋（メインプロット）</option>`;
-        sortedChars.forEach(char => {
-            const selected = st.targetType === 'character' && st.targetId === char.id ? 'selected' : '';
-            targetOptions += `<option value="char:${char.id}" ${selected}>キャラ [No.${char.number ?? 1}]：${this.escapeHtml(char.name)}</option>`;
-        });
-
-        const emoDisplay = st.emotion > 0 ? `+${st.emotion}` : `${st.emotion}`;
-
-        this.openModal(`
-            <div class="flex items-center justify-between">
-                <h3 class="font-bold text-lg flex items-center gap-2">
-                    <i class="ph-duotone ph-pencil-simple text-cyan-500 text-2xl"></i>
-                    <span>付箋の内容を編集</span>
-                </h3>
-                <button onclick="app.closeModal()" class="p-1 text-slate-400 hover:text-slate-200"><i class="ph-bold ph-x"></i></button>
-            </div>
-            <div class="space-y-3">
-                <div class="grid grid-cols-3 gap-2">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">番号 (No.)</label>
-                        <input id="edit-sticky-num" type="number" min="1" value="${st.number}" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono font-bold focus:border-cyan-500 focus:outline-none">
-                    </div>
-                    <div class="col-span-2">
-                        <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">対象（大筋 / キャラ）</label>
-                        <select id="edit-sticky-target" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-semibold focus:border-cyan-500 focus:outline-none">
-                            ${targetOptions}
-                        </select>
-                    </div>
+                    `}
                 </div>
-
-                <div>
-                    <div class="flex items-center justify-between mb-1">
-                        <label class="text-xs font-bold text-slate-500 dark:text-slate-400">エモーションレベル</label>
-                        <span id="edit-sticky-emo-val" class="font-mono text-xs font-bold text-cyan-500">${emoDisplay}</span>
-                    </div>
-                    <input id="edit-sticky-emo" type="range" min="-100" max="100" value="${st.emotion}" oninput="document.getElementById('edit-sticky-emo-val').textContent = (this.value > 0 ? '+' + this.value : this.value)" class="w-full">
-                </div>
-
-                <div>
-                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">出来事・行動の内容</label>
-                    <textarea id="edit-sticky-content" rows="3" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none text-xs leading-relaxed">${this.escapeHtml(st.content)}</textarea>
-                </div>
-            </div>
-            <div class="flex justify-end gap-2 pt-2">
-                <button onclick="app.closeModal()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800">キャンセル</button>
-                <button onclick="app.saveEditedSticky('${st.id}')" class="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-neon-cyan">変更を保存</button>
-            </div>
-        `);
-    }
-
-    saveEditedSticky(stickyId) {
-        const story = this.getCurrentStory();
-        const st = story?.stickies.find(s => s.id === stickyId);
-        if (!st) return;
-
-        const num = parseInt(document.getElementById('edit-sticky-num').value, 10) || 1;
-        const targetVal = document.getElementById('edit-sticky-target').value;
-        const emotion = parseInt(document.getElementById('edit-sticky-emo').value, 10) || 0;
-        const content = document.getElementById('edit-sticky-content').value.trim();
-
-        if (!content) {
-            this.showToast('付箋の内容を入力してください', 'error');
-            return;
+            `;
         }
 
-        this.pushHistory();
-        st.number = num;
-        if (targetVal.startsWith('char:')) {
-            st.targetType = 'character';
-            st.targetId = targetVal.split(':')[1];
-        } else {
-            st.targetType = 'main';
-            st.targetId = 'main';
-        }
-        st.emotion = emotion;
-        st.content = content;
-
-        this.saveData();
-        this.closeModal();
-        if (this.state.activeDrawer === 'stickies') this.renderDrawer();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        this.showToast(`付箋 #${num} を更新しました`);
-    }
-
-    toggleStickyPlaced(stickyId) {
-        const story = this.getCurrentStory();
-        const st = story.stickies.find(s => s.id === stickyId);
-        if (!st) return;
-        this.pushHistory();
-        st.placed = !st.placed;
-        if (!st.placed) {
-            story.connections = story.connections.filter(c => c.from !== stickyId && c.to !== stickyId);
-            this.state.selectedStickyIds = this.state.selectedStickyIds.filter(id => id !== stickyId);
-        }
-        this.saveData();
-        if (this.state.activeDrawer === 'stickies') this.renderDrawer();
-        this.updateModeButtonsUI();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-    }
-
-    deleteSticky(stickyId) {
-        const story = this.getCurrentStory();
-        this.pushHistory();
-        story.stickies = story.stickies.filter(s => s.id !== stickyId);
-        story.connections = story.connections.filter(c => c.from !== stickyId && c.to !== stickyId);
-        this.state.selectedStickyIds = this.state.selectedStickyIds.filter(id => id !== stickyId);
-        this.saveData();
-        if (this.state.activeDrawer === 'stickies') this.renderDrawer();
-        this.updateModeButtonsUI();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        this.showToast('付箋を削除しました');
-    }
-
-    getStickyMeta(story, sticky) {
-        if (sticky.targetType === 'character') {
-            const char = story.characters.find(c => c.id === sticky.targetId);
-            if (char) {
-                return {
-                    label: `[No.${char.number ?? 1}] ${char.name}`,
-                    colorObj: this.getColorMeta(char.color)
-                };
-            }
-        }
-        return {
-            label: '大筋',
-            colorObj: this.getColorMeta(story.mainColor || 'cyan')
-        };
-    }
-
-    // ==================== 機能4: 付箋つなぎ（同種制限あり） ====================
-    toggleConnectMode(forceState = null) {
-        this.state.isConnectMode = forceState !== null ? forceState : !this.state.isConnectMode;
-        this.state.connectSourceId = null;
-        if (this.state.isConnectMode) {
-            this.closeDrawer();
-            this.clearSelection();
-        }
-        this.updateConnectModeUI();
-        this.renderCanvas();
-    }
-
-    updateConnectModeUI() {
-        const navBtn = document.getElementById('nav-connect');
-        const banner = document.getElementById('connect-mode-banner');
-        const guideText = document.getElementById('connect-guide-text');
-
-        if (this.state.isConnectMode) {
-            navBtn.classList.add('bg-amber-500/20', 'text-amber-500', 'ring-1', 'ring-amber-500/50');
-            banner.classList.remove('hidden');
-            banner.classList.add('flex');
-            guideText.textContent = this.state.connectSourceId ? '2枚目（接続先）をクリック' : '1枚目（接続元）をクリック';
-        } else {
-            navBtn.classList.remove('bg-amber-500/20', 'text-amber-500', 'ring-1', 'ring-amber-500/50');
-            banner.classList.add('hidden');
-            banner.classList.remove('flex');
-        }
-    }
-
-    isSameStickyCategory(stickyA, stickyB) {
-        if (!stickyA || !stickyB) return false;
-        if (stickyA.targetType !== stickyB.targetType) return false;
-        if (stickyA.targetType === 'main') return true;
-        return stickyA.targetId === stickyB.targetId;
-    }
-
-    handleStickyClickForConnect(stickyId) {
-        if (!this.state.isConnectMode) return;
-        const story = this.getCurrentStory();
-
-        if (!this.state.connectSourceId) {
-            this.state.connectSourceId = stickyId;
-            this.updateConnectModeUI();
-            this.renderCanvas();
-            return;
+        if (key === 'canvas') {
+            html += buildPdfCanvasSection(proj, breakClass);
         }
 
-        if (this.state.connectSourceId === stickyId) {
-            this.state.connectSourceId = null;
-            this.updateConnectModeUI();
-            this.renderCanvas();
-            return;
+        if (key === 'graph') {
+            html += buildPdfGraphSection(proj, breakClass);
         }
+    });
 
-        const fromSticky = story.stickies.find(s => s.id === this.state.connectSourceId);
-        const toSticky = story.stickies.find(s => s.id === stickyId);
+    printContainer.innerHTML = html;
 
-        if (!this.isSameStickyCategory(fromSticky, toSticky)) {
-            this.showToast('同じ種類（大筋同士、または同じキャラクター同士）の付箋しか繋げません', 'error');
-            this.state.connectSourceId = null;
-            this.updateConnectModeUI();
-            this.renderCanvas();
-            return;
-        }
+    // 印刷ダイアログ起動（iOS / PC対応）
+    setTimeout(() => {
+        window.print();
+    }, 150);
+}
 
-        const existsIdx = story.connections.findIndex(c => c.from === this.state.connectSourceId && c.to === stickyId);
-        this.pushHistory();
-        if (existsIdx >= 0) {
-            story.connections.splice(existsIdx, 1);
-            this.showToast('付箋の接続を解除しました');
-        } else {
-            story.connections = story.connections.filter(c => !(c.from === stickyId && c.to === this.state.connectSourceId));
-            story.connections.push({
-                id: 'conn_' + Date.now(),
-                from: this.state.connectSourceId,
-                to: stickyId
-            });
-            this.showToast('付箋を線で繋ぎました');
-        }
+// 白紙キャンバス全体図SVG ＋ 番号順テキスト一覧表生成
+function buildPdfCanvasSection(proj, breakClass) {
+    const visible = proj.notes.filter(n => !n.hidden);
+    const allSorted = [...proj.notes].sort((a, b) => (a.number || 0) - (b.number || 0));
 
-        this.state.connectSourceId = null;
-        this.saveData();
-        this.updateConnectModeUI();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-    }
+    let mapSvg = '<p style="font-size:12px; color:#64748b;">白紙上に配置された付箋はありません。</p>';
 
-    deleteConnection(connId) {
-        const story = this.getCurrentStory();
-        this.pushHistory();
-        story.connections = story.connections.filter(c => c.id !== connId);
-        this.saveData();
-        this.renderCanvas();
-        this.renderEmotionGraph();
-        this.showToast('接続線を削除しました');
-    }
+    if (visible.length > 0) {
+        const pad = 40;
+        const cardW = 190;
+        const cardH = 95;
+        const minX = Math.min(...visible.map(n => n.x)) - pad;
+        const minY = Math.min(...visible.map(n => n.y)) - pad;
+        const maxX = Math.max(...visible.map(n => n.x + cardW)) + pad;
+        const maxY = Math.max(...visible.map(n => n.y + cardH)) + pad;
+        const vbW = Math.max(400, maxX - minX);
+        const vbH = Math.max(220, maxY - minY);
 
-    // ==================== キャンバス選択モード切替・解除 ====================
-    setCanvasMode(mode) {
-        this.state.canvasMode = mode;
-        if (this.state.isConnectMode) {
-            this.toggleConnectMode(false);
-        }
-        this.updateModeButtonsUI();
-        this.renderCanvas();
-    }
+        const linesSvg = proj.connections.map(conn => {
+            const n1 = visible.find(n => n.id === conn.from);
+            const n2 = visible.find(n => n.id === conn.to);
+            if (!n1 || !n2) return '';
+            const color = getNoteColor(proj, n1);
+            return `<line x1="${n1.x + cardW / 2}" y1="${n1.y + cardH / 2}" x2="${n2.x + cardW / 2}" y2="${n2.y + cardH / 2}" stroke="${color}" stroke-width="3" />`;
+        }).join('');
 
-    clearSelection() {
-        this.state.selectedStickyIds = [];
-        this.updateModeButtonsUI();
-        this.renderCanvas();
-        this.showToast('選択を解除しました');
-    }
-
-    updateModeButtonsUI() {
-        const modes = ['normal', 'select'];
-        modes.forEach(m => {
-            const btn = document.getElementById(`btn-mode-${m}`);
-            if (!btn) return;
-            if (this.state.canvasMode === m) {
-                btn.className = 'px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition bg-cyan-500 text-slate-950 shadow-neon-cyan';
-            } else {
-                btn.className = 'px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800';
-            }
-        });
-
-        const clearBtn = document.getElementById('btn-clear-selection');
-        const countEl = document.getElementById('selected-count');
-        if (clearBtn && countEl) {
-            if (this.state.selectedStickyIds.length > 0) {
-                clearBtn.classList.remove('hidden');
-                clearBtn.classList.add('flex');
-                countEl.textContent = this.state.selectedStickyIds.length;
-            } else {
-                clearBtn.classList.add('hidden');
-                clearBtn.classList.remove('flex');
-            }
-        }
-    }
-
-    // ==================== 無限キャンバス＆ピンチ拡大縮小 ====================
-    applyZoom(newZoom, pivotClientX = null, pivotClientY = null) {
-        const clamped = Math.min(2.5, Math.max(0.25, Number(newZoom.toFixed(3))));
-        const viewport = document.getElementById('canvas-viewport');
-        const oldZoom = this.state.zoom;
-
-        let anchorBoardX = null;
-        let anchorBoardY = null;
-        let offsetXInViewport = 0;
-        let offsetYInViewport = 0;
-
-        if (pivotClientX !== null && pivotClientY !== null && viewport) {
-            const rect = viewport.getBoundingClientRect();
-            offsetXInViewport = pivotClientX - rect.left;
-            offsetYInViewport = pivotClientY - rect.top;
-            anchorBoardX = (viewport.scrollLeft + offsetXInViewport) / oldZoom;
-            anchorBoardY = (viewport.scrollTop + offsetYInViewport) / oldZoom;
-        }
-
-        this.state.zoom = clamped;
-
-        const board = document.getElementById('canvas-board');
-        const label = document.getElementById('zoom-level-label');
-
-        if (board) {
-            board.style.transform = `scale(${clamped})`;
-        }
-        if (label) {
-            label.textContent = `${Math.round(clamped * 100)}%`;
-        }
-
-        this.expandCanvasIfNeeded();
-
-        if (anchorBoardX !== null && viewport) {
-            viewport.scrollLeft = Math.max(0, anchorBoardX * clamped - offsetXInViewport);
-            viewport.scrollTop = Math.max(0, anchorBoardY * clamped - offsetYInViewport);
-        }
-    }
-
-    expandCanvasIfNeeded() {
-        if (this.dragInfo.isDragging) return;
-
-        const story = this.getCurrentStory();
-        const viewport = document.getElementById('canvas-viewport');
-        const wrapper = document.getElementById('canvas-zoom-wrapper');
-        const board = document.getElementById('canvas-board');
-        if (!story || !viewport || !wrapper || !board) return;
-
-        const z = this.state.zoom;
-        let shiftX = 0;
-        let shiftY = 0;
-
-        const minStickyX = story.stickies.filter(s => s.placed).reduce((m, s) => Math.min(m, s.x), Infinity);
-        const minStickyY = story.stickies.filter(s => s.placed).reduce((m, s) => Math.min(m, s.y), Infinity);
-
-        if (viewport.scrollLeft < 400 || minStickyX < 300) {
-            shiftX = 1500;
-        }
-        if (viewport.scrollTop < 400 || minStickyY < 300) {
-            shiftY = 1500;
-        }
-
-        if (shiftX > 0 || shiftY > 0) {
-            story.stickies.forEach(s => {
-                s.x += shiftX;
-                s.y += shiftY;
-            });
-            this.state.boardWidth += shiftX;
-            this.state.boardHeight += shiftY;
-        }
-
-        let maxX = this.state.boardWidth;
-        let maxY = this.state.boardHeight;
-
-        story.stickies.filter(s => s.placed).forEach(s => {
-            if (s.x + 800 > maxX) maxX = s.x + 1500;
-            if (s.y + 800 > maxY) maxY = s.y + 1500;
-        });
-
-        const viewRightBoard = (viewport.scrollLeft + viewport.clientWidth) / z;
-        const viewBottomBoard = (viewport.scrollTop + viewport.clientHeight) / z;
-
-        if (viewRightBoard + 600 > maxX) maxX = Math.ceil(viewRightBoard + 1800);
-        if (viewBottomBoard + 600 > maxY) maxY = Math.ceil(viewBottomBoard + 1800);
-
-        this.state.boardWidth = maxX;
-        this.state.boardHeight = maxY;
-
-        board.style.width = `${maxX}px`;
-        board.style.height = `${maxY}px`;
-        wrapper.style.width = `${Math.ceil(maxX * z)}px`;
-        wrapper.style.height = `${Math.ceil(maxY * z)}px`;
-
-        if (shiftX > 0 || shiftY > 0) {
-            viewport.scrollLeft += shiftX * z;
-            viewport.scrollTop += shiftY * z;
-            this.renderCanvas();
-        }
-    }
-
-    // ==================== 白紙キャンバス描画＆ドラッグ・複数選択・ピンチ操作 ====================
-    renderCanvas() {
-        const story = this.getCurrentStory();
-        if (!story) return;
-
-        const stickiesLayer = document.getElementById('stickies-layer');
-        const placedStickies = story.stickies.filter(s => s.placed);
-
-        this.updateModeButtonsUI();
-
-        // 1. 付箋カード描画
-        stickiesLayer.innerHTML = placedStickies.map(st => {
-            const meta = this.getStickyMeta(story, st);
-            const emoText = st.emotion > 0 ? `+${st.emotion}` : `${st.emotion}`;
-            const isSource = this.state.connectSourceId === st.id;
-            const isSelected = this.state.selectedStickyIds.includes(st.id);
-
-            const sourceCategorySticky = this.state.connectSourceId
-                ? story.stickies.find(s => s.id === this.state.connectSourceId)
-                : null;
-            const isIncompatibleTarget = this.state.isConnectMode && sourceCategorySticky && !this.isSameStickyCategory(sourceCategorySticky, st);
-
-            let borderStyle = `border-color: ${meta.colorObj.borderDark};`;
-            if (isSource) {
-                borderStyle = `border-color: #fbbf24; box-shadow: 0 0 18px rgba(251, 191, 36, 0.75);`;
-            }
-
-            const cursorClass = this.state.isConnectMode
-                ? (isIncompatibleTarget ? 'cursor-not-allowed opacity-40' : 'cursor-pointer')
-                : 'cursor-grab';
-
+        const cardsSvg = visible.map(n => {
+            const color = getNoteColor(proj, n);
+            const label = getTargetLabel(proj, n.targetId);
+            const titleShort = (n.title || '').slice(0, 14);
             return `
-                <div id="node-${st.id}" data-id="${st.id}"
-                     style="left: ${st.x}px; top: ${st.y}px; width: 224px; ${borderStyle}"
-                     class="sticky-node ${isSelected ? 'sticky-selected' : ''} absolute rounded-2xl border-2 bg-white/95 dark:bg-cyber-card/95 backdrop-blur-md p-3.5 shadow-xl ${cursorClass}">
-                    <!-- 上部ヘッダー -->
-                    <div class="flex items-center justify-between gap-1.5 mb-2 pb-1.5 border-b border-slate-200 dark:border-slate-700/80">
-                        <div class="flex items-center gap-1.5 min-w-0">
-                            <span class="px-2 py-0.5 rounded-md text-xs font-mono font-bold text-slate-950 shrink-0" style="background:${meta.colorObj.hex};">#${st.number}</span>
-                            <span class="text-xs font-bold truncate" style="color:${meta.colorObj.hex};">${this.escapeHtml(meta.label)}</span>
-                        </div>
-                        <div class="flex items-center gap-1 shrink-0">
-                            <button onclick="event.stopPropagation(); app.openEditStickyModal('${st.id}')" class="text-slate-400 hover:text-cyan-400 p-0.5 transition" title="付箋を編集">
-                                <i class="ph-bold ph-pencil-simple text-xs"></i>
-                            </button>
-                            <button onclick="event.stopPropagation(); app.toggleStickyPlaced('${st.id}')" class="text-slate-400 hover:text-amber-400 p-0.5 transition" title="白紙からしまう">
-                                <i class="ph-bold ph-minus-circle text-xs"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- 本文 -->
-                    <p class="text-xs text-slate-700 dark:text-slate-200 leading-relaxed break-words min-h-[3.2rem]">
-                        ${this.escapeHtml(st.content)}
-                    </p>
-
-                    <!-- 下部エモーションレベルバー -->
-                    <div class="mt-2.5 pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                        <span class="text-[10px] font-mono text-slate-400">EMOTION</span>
-                        <div class="flex items-center gap-1.5">
-                            <div class="w-16 h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
-                                <div class="h-full rounded-full" style="width: ${Math.abs(st.emotion)}%; background: ${st.emotion >= 0 ? '#00f0ff' : '#ff007f'};"></div>
-                            </div>
-                            <span class="font-mono text-xs font-bold ${st.emotion >= 0 ? 'text-cyan-600 dark:text-cyber-cyan' : 'text-pink-600 dark:text-cyber-pink'}">${emoText}</span>
-                        </div>
-                    </div>
-                </div>
+                <g transform="translate(${n.x}, ${n.y})">
+                    <rect width="${cardW}" height="${cardH}" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5" />
+                    <rect width="${cardW}" height="6" rx="3" fill="${color}" />
+                    <text x="10" y="24" font-size="11" font-weight="bold" fill="${color}">#${n.number} ${escapeHtml(label)}</text>
+                    <text x="10" y="44" font-size="12" font-weight="bold" fill="#0f172a">${escapeHtml(titleShort)}</text>
+                    <text x="10" y="78" font-size="10" fill="#64748b">EMO: ${n.emotion > 0 ? '+' + n.emotion : n.emotion}</text>
+                </g>
             `;
         }).join('');
 
-        // 2. 接続線SVG描画
-        this.renderConnections();
-    }
-
-    renderConnections() {
-        const story = this.getCurrentStory();
-        if (!story) return;
-        const connectionsGroup = document.getElementById('connections-group');
-        const placedMap = new Map(story.stickies.filter(s => s.placed).map(s => [s.id, s]));
-
-        let pathsHtml = '';
-        story.connections.forEach(conn => {
-            const fromSt = placedMap.get(conn.from);
-            const toSt = placedMap.get(conn.to);
-            if (!fromSt || !toSt) return;
-
-            const meta = this.getStickyMeta(story, fromSt);
-            const strokeColor = meta.colorObj.hex;
-
-            const x1 = fromSt.x + 224;
-            const y1 = fromSt.y + 68;
-            const x2 = toSt.x;
-            const y2 = toSt.y + 68;
-
-            const dx = Math.abs(x2 - x1) * 0.45 + 40;
-            const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-
-            pathsHtml += `
-                <g class="pointer-events-auto cursor-pointer group" onclick="app.deleteConnection('${conn.id}')">
-                    <path d="${d}" fill="none" stroke="transparent" stroke-width="16" />
-                    <path d="${d}" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-opacity="0.35" />
-                    <path d="${d}" fill="none" stroke="${strokeColor}" stroke-width="2.5" class="connection-line-anim group-hover:stroke-rose-500" />
-                    <circle cx="${x2}" cy="${y2}" r="4.5" fill="${strokeColor}" />
-                </g>
-            `;
-        });
-
-        connectionsGroup.innerHTML = pathsHtml;
-    }
-
-    setupCanvasInteractions() {
-        const viewport = document.getElementById('canvas-viewport');
-        const board = document.getElementById('canvas-board');
-        const marquee = document.getElementById('selection-marquee');
-
-        viewport.addEventListener('scroll', () => {
-            if (!this.dragInfo.isDragging) {
-                this.expandCanvasIfNeeded();
-            }
-        });
-
-        // トラックパッドのピンチ操作（Ctrl + Wheel）
-        viewport.addEventListener('wheel', (e) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                const zoomFactor = e.deltaY < 0 ? 1.07 : 0.93;
-                this.applyZoom(this.state.zoom * zoomFactor, e.clientX, e.clientY);
-            }
-        }, { passive: false });
-
-        // タッチでの2本指ピンチイン・ピンチアウト操作
-        viewport.addEventListener('touchstart', (e) => {
-            if (e.touches.length === 2) {
-                e.preventDefault();
-                this.pinchInfo.isPinching = true;
-                this.dragInfo.isDragging = false;
-                this.marqueeInfo.isSelecting = false;
-                this.panInfo.isPanning = false;
-                if (marquee) marquee.classList.add('hidden');
-                this.pinchInfo.initialDistance = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
-                );
-                this.pinchInfo.initialZoom = this.state.zoom;
-            }
-        }, { passive: false });
-
-        viewport.addEventListener('touchmove', (e) => {
-            if (this.pinchInfo.isPinching && e.touches.length === 2) {
-                e.preventDefault();
-                const currentDist = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
-                );
-                if (this.pinchInfo.initialDistance > 0) {
-                    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                    const nextZoom = this.pinchInfo.initialZoom * (currentDist / this.pinchInfo.initialDistance);
-                    this.applyZoom(nextZoom, midX, midY);
-                }
-            }
-        }, { passive: false });
-
-        viewport.addEventListener('touchend', (e) => {
-            if (e.touches.length < 2) {
-                this.pinchInfo.isPinching = false;
-            }
-        });
-
-        // キャンバスの空白クリック／ドラッグ処理（白紙のパン移動・選択解除・範囲選択）
-        board.addEventListener('mousedown', (e) => {
-            if (e.button !== 0 || this.state.isConnectMode) return;
-            if (e.target.closest('.sticky-node')) return;
-
-            if (this.state.canvasMode !== 'select' && !e.shiftKey) {
-                this.panInfo = {
-                    isPanning: true,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    origScrollLeft: viewport.scrollLeft,
-                    origScrollTop: viewport.scrollTop,
-                    moved: false
-                };
-                return;
-            }
-
-            const rect = board.getBoundingClientRect();
-            const startX = (e.clientX - rect.left) / this.state.zoom;
-            const startY = (e.clientY - rect.top) / this.state.zoom;
-
-            this.marqueeInfo = {
-                isSelecting: true,
-                startX,
-                startY
-            };
-
-            if (marquee) {
-                marquee.style.left = `${startX}px`;
-                marquee.style.top = `${startY}px`;
-                marquee.style.width = '0px';
-                marquee.style.height = '0px';
-                marquee.classList.remove('hidden');
-            }
-        });
-
-        board.addEventListener('touchstart', (e) => {
-            if (this.state.isConnectMode || e.touches.length !== 1) return;
-            if (e.target.closest('.sticky-node')) return;
-
-            const touch = e.touches[0];
-            if (this.state.canvasMode !== 'select') {
-                this.panInfo = {
-                    isPanning: true,
-                    startX: touch.clientX,
-                    startY: touch.clientY,
-                    origScrollLeft: viewport.scrollLeft,
-                    origScrollTop: viewport.scrollTop,
-                    moved: false
-                };
-                return;
-            }
-
-            const rect = board.getBoundingClientRect();
-            const startX = (touch.clientX - rect.left) / this.state.zoom;
-            const startY = (touch.clientY - rect.top) / this.state.zoom;
-
-            this.marqueeInfo = {
-                isSelecting: true,
-                startX,
-                startY
-            };
-
-            if (marquee) {
-                marquee.style.left = `${startX}px`;
-                marquee.style.top = `${startY}px`;
-                marquee.style.width = '0px';
-                marquee.style.height = '0px';
-                marquee.classList.remove('hidden');
-            }
-        }, { passive: true });
-
-        // 付箋のドラッグ移動・複数選択操作
-        const startStickyInteraction = (clientX, clientY, target, isMultiModifier) => {
-            const card = target.closest('.sticky-node');
-            if (!card) return;
-            const id = card.dataset.id;
-
-            if (this.state.isConnectMode) {
-                this.handleStickyClickForConnect(id);
-                return;
-            }
-
-            const story = this.getCurrentStory();
-            const sticky = story?.stickies.find(s => s.id === id);
-            if (!sticky) return;
-
-            // 複数選択モード、またはShift/Ctrl押下時：選択リストへ追加・解除
-            if (this.state.canvasMode === 'select' || isMultiModifier) {
-                if (this.state.selectedStickyIds.includes(id)) {
-                    this.state.selectedStickyIds = this.state.selectedStickyIds.filter(sid => sid !== id);
-                } else {
-                    this.state.selectedStickyIds.push(id);
-                }
-                this.updateModeButtonsUI();
-                this.renderCanvas();
-                return;
-            }
-
-            // 移動モード：選択済みグループならまとめて移動、それ以外は単体で即ドラッグ開始
-            let targetIds = [id];
-            if (this.state.selectedStickyIds.includes(id) && this.state.selectedStickyIds.length > 0) {
-                targetIds = [...this.state.selectedStickyIds];
-            } else {
-                if (this.state.selectedStickyIds.length > 0) {
-                    this.state.selectedStickyIds = [];
-                    this.updateModeButtonsUI();
-                    this.renderCanvas();
-                }
-                targetIds = [id];
-            }
-
-            const items = targetIds.map(sid => {
-                const sObj = story.stickies.find(s => s.id === sid);
-                return sObj ? { id: sid, origX: sObj.x, origY: sObj.y } : null;
-            }).filter(Boolean);
-
-            this.dragInfo = {
-                isDragging: true,
-                items,
-                startMouseX: clientX,
-                startMouseY: clientY,
-                moved: false
-            };
-        };
-
-        const moveDrag = (clientX, clientY) => {
-            if (this.panInfo.isPanning) {
-                const dx = clientX - this.panInfo.startX;
-                const dy = clientY - this.panInfo.startY;
-                if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-                    this.panInfo.moved = true;
-                }
-                viewport.scrollLeft = Math.max(0, this.panInfo.origScrollLeft - dx);
-                viewport.scrollTop = Math.max(0, this.panInfo.origScrollTop - dy);
-                return;
-            }
-
-            if (this.marqueeInfo.isSelecting && marquee) {
-                const rect = board.getBoundingClientRect();
-                const curX = (clientX - rect.left) / this.state.zoom;
-                const curY = (clientY - rect.top) / this.state.zoom;
-
-                const left = Math.min(this.marqueeInfo.startX, curX);
-                const top = Math.min(this.marqueeInfo.startY, curY);
-                const width = Math.abs(curX - this.marqueeInfo.startX);
-                const height = Math.abs(curY - this.marqueeInfo.startY);
-
-                marquee.style.left = `${left}px`;
-                marquee.style.top = `${top}px`;
-                marquee.style.width = `${width}px`;
-                marquee.style.height = `${height}px`;
-                return;
-            }
-
-            if (!this.dragInfo.isDragging) return;
-            const story = this.getCurrentStory();
-            if (!story) return;
-
-            const dx = (clientX - this.dragInfo.startMouseX) / this.state.zoom;
-            const dy = (clientY - this.dragInfo.startMouseY) / this.state.zoom;
-
-            if (!this.dragInfo.moved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
-                this.pushHistory();
-                this.dragInfo.moved = true;
-            }
-
-            this.dragInfo.items.forEach(item => {
-                const st = story.stickies.find(s => s.id === item.id);
-                if (!st) return;
-                st.x = Math.max(50, Math.round(item.origX + dx));
-                st.y = Math.max(50, Math.round(item.origY + dy));
-
-                const el = document.getElementById(`node-${st.id}`);
-                if (el) {
-                    el.style.left = `${st.x}px`;
-                    el.style.top = `${st.y}px`;
-                }
-            });
-            this.renderConnections();
-        };
-
-        const endDrag = () => {
-            if (this.panInfo.isPanning) {
-                const wasPanned = this.panInfo.moved;
-                this.panInfo.isPanning = false;
-                this.panInfo.moved = false;
-                if (!wasPanned && this.state.selectedStickyIds.length > 0) {
-                    this.state.selectedStickyIds = [];
-                    this.renderCanvas();
-                }
-                return;
-            }
-
-            if (this.marqueeInfo.isSelecting) {
-                this.marqueeInfo.isSelecting = false;
-                if (marquee) {
-                    const left = parseFloat(marquee.style.left) || 0;
-                    const top = parseFloat(marquee.style.top) || 0;
-                    const width = parseFloat(marquee.style.width) || 0;
-                    const height = parseFloat(marquee.style.height) || 0;
-                    marquee.classList.add('hidden');
-
-                    if (width > 8 || height > 8) {
-                        const story = this.getCurrentStory();
-                        if (story) {
-                            const right = left + width;
-                            const bottom = top + height;
-                            const hitIds = story.stickies
-                                .filter(s => s.placed)
-                                .filter(s => {
-                                    const sRight = s.x + 224;
-                                    const sBottom = s.y + 135;
-                                    return !(s.x > right || sRight < left || s.y > bottom || sBottom < top);
-                                })
-                                .map(s => s.id);
-                            const merged = new Set([...this.state.selectedStickyIds, ...hitIds]);
-                            this.state.selectedStickyIds = Array.from(merged);
-                        }
-                    } else if (this.state.selectedStickyIds.length > 0) {
-                        // 空白クリック時は選択を解除
-                        this.state.selectedStickyIds = [];
-                    }
-                    this.renderCanvas();
-                }
-            }
-
-            if (this.dragInfo.isDragging) {
-                this.dragInfo.isDragging = false;
-                this.dragInfo.items = [];
-                this.dragInfo.moved = false;
-                this.expandCanvasIfNeeded();
-                this.saveData();
-            }
-        };
-
-        board.addEventListener('mousedown', (e) => {
-            if (e.button !== 0 || e.target.closest('button')) return;
-            if (e.target.closest('.sticky-node')) {
-                startStickyInteraction(e.clientX, e.clientY, e.target, e.shiftKey || e.ctrlKey || e.metaKey);
-            }
-        });
-        window.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
-        window.addEventListener('mouseup', endDrag);
-
-        board.addEventListener('touchstart', (e) => {
-            if (e.target.closest('button') || e.touches.length !== 1) return;
-            if (e.target.closest('.sticky-node')) {
-                e.preventDefault();
-                startStickyInteraction(e.touches[0].clientX, e.touches[0].clientY, e.target, false);
-            }
-        }, { passive: false });
-        window.addEventListener('touchmove', (e) => {
-            if (this.pinchInfo.isPinching) return;
-            if ((this.dragInfo.isDragging || this.marqueeInfo.isSelecting || this.panInfo.isPanning) && e.touches.length === 1) {
-                e.preventDefault();
-                moveDrag(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        }, { passive: false });
-        window.addEventListener('touchend', endDrag);
-    }
-
-    // 階層的な番号順整列（大筋を最上段、その下にキャラNo.順、左から若い番号順に横並び）
-    autoAlignCanvas() {
-        const story = this.getCurrentStory();
-        if (!story) return;
-
-        const placed = story.stickies.filter(s => s.placed);
-        if (placed.length === 0) return;
-
-        this.pushHistory();
-
-        const viewport = document.getElementById('canvas-viewport');
-        const startX = Math.max(200, Math.round((viewport.scrollLeft + 80) / this.state.zoom));
-        const startY = Math.max(200, Math.round((viewport.scrollTop + 90) / this.state.zoom));
-
-        const groups = [];
-
-        // 1段目：大筋
-        const mainStickies = placed
-            .filter(s => s.targetType === 'main')
-            .sort((a, b) => a.number - b.number);
-        if (mainStickies.length > 0) {
-            groups.push(mainStickies);
-        }
-
-        // 2段目以降：キャラクターナンバー順
-        const sortedChars = [...story.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
-        sortedChars.forEach(char => {
-            const charStickies = placed
-                .filter(s => s.targetType === 'character' && s.targetId === char.id)
-                .sort((a, b) => a.number - b.number);
-            if (charStickies.length > 0) {
-                groups.push(charStickies);
-            }
-        });
-
-        const colWidth = 265;
-        const rowHeight = 200;
-
-        groups.forEach((rowStickies, rowIdx) => {
-            rowStickies.forEach((st, colIdx) => {
-                st.x = startX + colIdx * colWidth;
-                st.y = startY + rowIdx * rowHeight;
-            });
-        });
-
-        this.saveData();
-        this.expandCanvasIfNeeded();
-        this.renderCanvas();
-        this.showToast('大筋を最上段・キャラNo.順の階層で番号整列しました');
-    }
-
-    resetCanvasScroll(silent = false) {
-        const viewport = document.getElementById('canvas-viewport');
-        const story = this.getCurrentStory();
-        if (!viewport) return;
-
-        let targetX = this.BOARD_ORIGIN;
-        let targetY = this.BOARD_ORIGIN;
-
-        if (story) {
-            const placed = story.stickies.filter(s => s.placed);
-            if (placed.length > 0) {
-                targetX = Math.max(0, Math.min(...placed.map(s => s.x)) - 60);
-                targetY = Math.max(0, Math.min(...placed.map(s => s.y)) - 80);
-            }
-        }
-
-        viewport.scrollTo({
-            left: targetX * this.state.zoom,
-            top: targetY * this.state.zoom,
-            behavior: silent ? 'auto' : 'smooth'
-        });
-        if (!silent) {
-            this.showToast('付箋の基準位置へ視点を戻しました');
-        }
-    }
-
-    // ==================== 機能5: エモーションレベル可視化グラフ ====================
-    toggleGraphPanel(forceState = null) {
-        this.state.isGraphVisible = forceState !== null ? forceState : !this.state.isGraphVisible;
-        const panel = document.getElementById('emotion-graph-panel');
-        const toggleBtn = document.getElementById('nav-graph-toggle');
-
-        if (this.state.isGraphVisible) {
-            panel.classList.remove('hidden');
-            toggleBtn.classList.add('bg-cyan-500/10', 'text-cyan-600', 'dark:text-cyber-cyan', 'border-cyan-500/30');
-            this.renderEmotionGraph();
-        } else {
-            panel.classList.add('hidden');
-            toggleBtn.classList.remove('bg-cyan-500/10', 'text-cyan-600', 'dark:text-cyber-cyan', 'border-cyan-500/30');
-        }
-    }
-
-    updateGraphFilterOptions() {
-        const story = this.getCurrentStory();
-        const select = document.getElementById('graph-filter-select');
-        if (!story || !select) return;
-
-        const prevVal = select.value;
-        const sortedChars = [...story.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
-
-        let options = `
-            <option value="all">総合（すべて表示）</option>
-            <option value="main">単体：大筋のみ</option>
+        mapSvg = `
+            <div class="pdf-avoid-break" style="border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px; background: #f8fafc; margin-bottom: 14px;">
+                <svg width="100%" style="max-height: 360px;" viewBox="${minX} ${minY} ${vbW} ${vbH}">
+                    ${linesSvg}
+                    ${cardsSvg}
+                </svg>
+            </div>
         `;
-        sortedChars.forEach(c => {
-            options += `<option value="char:${c.id}">単体：[No.${c.number ?? 1}] ${this.escapeHtml(c.name)}</option>`;
-        });
-        select.innerHTML = options;
-
-        if ([...select.options].some(o => o.value === prevVal)) {
-            select.value = prevVal;
-        } else {
-            select.value = 'all';
-        }
     }
 
-    buildConnectedSequences(story) {
-        const placedStickies = story.stickies.filter(s => s.placed);
-        const stickyMap = new Map(placedStickies.map(s => [s.id, s]));
+    const listHtml = allSorted.length === 0 ? '' : `
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            <thead>
+                <tr style="background: #f1f5f9; border-bottom: 1.5px solid #cbd5e1; text-align: left;">
+                    <th style="padding: 6px 8px; width: 45px;">No.</th>
+                    <th style="padding: 6px 8px; width: 110px;">対象</th>
+                    <th style="padding: 6px 8px;">見出し・内容</th>
+                    <th style="padding: 6px 8px; width: 45px; text-align: right;">EMO</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${allSorted.map(n => {
+                    const color = getNoteColor(proj, n);
+                    const label = getTargetLabel(proj, n.targetId);
+                    return `
+                        <tr class="pdf-avoid-break" style="border-bottom: 1px solid #e2e8f0;">
+                            <td style="padding: 6px 8px; font-weight: bold; color: ${color};">#${n.number}</td>
+                            <td style="padding: 6px 8px; font-weight: bold;">${escapeHtml(label)}</td>
+                            <td style="padding: 6px 8px;">
+                                <div style="font-weight: bold; color: #0f172a;">${escapeHtml(n.title)}</div>
+                                ${n.content ? `<div style="color: #475569; margin-top: 2px; white-space: pre-wrap;">${escapeHtml(n.content)}</div>` : ''}
+                            </td>
+                            <td style="padding: 6px 8px; text-align: right; font-weight: bold;">${n.emotion > 0 ? '+' + n.emotion : n.emotion}</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
 
-        const validConns = story.connections.filter(c => stickyMap.has(c.from) && stickyMap.has(c.to));
-
-        const nextMap = new Map();
-        const inDegree = new Map();
-        placedStickies.forEach(s => {
-            nextMap.set(s.id, []);
-            inDegree.set(s.id, 0);
-        });
-
-        validConns.forEach(c => {
-            nextMap.get(c.from).push(c.to);
-            inDegree.set(c.to, (inDegree.get(c.to) || 0) + 1);
-        });
-
-        const visitedGlobal = new Set();
-        const orderedNodes = [];
-
-        const starts = placedStickies
-            .filter(s => (inDegree.get(s.id) || 0) === 0 && (nextMap.get(s.id)?.length || 0) > 0)
-            .sort((a, b) => a.number - b.number);
-
-        const traverse = (startId) => {
-            let currId = startId;
-            const localVisited = new Set();
-            while (currId && !localVisited.has(currId)) {
-                localVisited.add(currId);
-                visitedGlobal.add(currId);
-                orderedNodes.push(stickyMap.get(currId));
-                const nexts = nextMap.get(currId) || [];
-                currId = nexts[0] || null;
-            }
-        };
-
-        starts.forEach(s => {
-            if (!visitedGlobal.has(s.id)) traverse(s.id);
-        });
-
-        validConns.forEach(c => {
-            if (!visitedGlobal.has(c.from)) traverse(c.from);
-        });
-
-        return orderedNodes;
-    }
-
-    renderEmotionGraph() {
-        const story = this.getCurrentStory();
-        const container = document.getElementById('emotion-graph-container');
-        const filterVal = document.getElementById('graph-filter-select').value;
-        if (!story || !container) return;
-
-        const connectedNodes = this.buildConnectedSequences(story);
-
-        const seriesList = [];
-        if (filterVal === 'all') {
-            const mainNodes = connectedNodes.filter(s => s.targetType === 'main').sort((a, b) => a.number - b.number);
-            if (mainNodes.length > 0) {
-                seriesList.push({ label: '大筋', color: this.getColorMeta(story.mainColor || 'cyan').hex, nodes: mainNodes });
-            }
-            const sortedChars = [...story.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
-            sortedChars.forEach(char => {
-                const cNodes = connectedNodes.filter(s => s.targetType === 'character' && s.targetId === char.id).sort((a, b) => a.number - b.number);
-                if (cNodes.length > 0) {
-                    seriesList.push({ label: `[No.${char.number ?? 1}] ${char.name}`, color: this.getColorMeta(char.color).hex, nodes: cNodes });
-                }
-            });
-        } else if (filterVal === 'main') {
-            const mainNodes = connectedNodes.filter(s => s.targetType === 'main').sort((a, b) => a.number - b.number);
-            if (mainNodes.length > 0) {
-                seriesList.push({ label: '大筋', color: this.getColorMeta(story.mainColor || 'cyan').hex, nodes: mainNodes });
-            }
-        } else if (filterVal.startsWith('char:')) {
-            const charId = filterVal.split(':')[1];
-            const char = story.characters.find(c => c.id === charId);
-            if (char) {
-                const cNodes = connectedNodes.filter(s => s.targetType === 'character' && s.targetId === charId).sort((a, b) => a.number - b.number);
-                if (cNodes.length > 0) {
-                    seriesList.push({ label: `[No.${char.number ?? 1}] ${char.name}`, color: this.getColorMeta(char.color).hex, nodes: cNodes });
-                }
-            }
-        }
-
-        if (seriesList.length === 0) {
-            container.innerHTML = `
-                <div class="text-center text-xs text-slate-400 space-y-1">
-                    <p class="font-bold">表示できる接続済み付箋がありません</p>
-                    <p class="text-[11px]">白紙に付箋を出し、左バーの「付箋つなぎ」で付箋同士を繋ぐとここに感情グラフが描画されます。</p>
-                </div>
-            `;
-            return;
-        }
-
-        const allNumbers = Array.from(new Set(seriesList.flatMap(s => s.nodes.map(n => n.number)))).sort((a, b) => a - b);
-
-        const width = Math.max(container.clientWidth - 20, 320);
-        const height = Math.max(container.clientHeight - 8, 175);
-        const padLeft = 48;
-        const padRight = 28;
-        const padTop = 26;
-        const padBottom = 38;
-        const plotW = width - padLeft - padRight;
-        const plotH = height - padTop - padBottom;
-
-        const getX = (num) => {
-            if (allNumbers.length === 1) return padLeft + plotW / 2;
-            const idx = allNumbers.indexOf(num);
-            return padLeft + (idx / (allNumbers.length - 1)) * plotW;
-        };
-
-        const getY = (emo) => {
-            const clamped = Math.max(-100, Math.min(100, emo));
-            return padTop + ((100 - clamped) / 200) * plotH;
-        };
-
-        const isDark = this.state.theme === 'dark';
-        const gridColor = isDark ? 'rgba(148, 163, 184, 0.16)' : 'rgba(15, 23, 42, 0.1)';
-        const zeroLineColor = isDark ? 'rgba(0, 240, 255, 0.4)' : 'rgba(2, 132, 199, 0.45)';
-        const axisBgColor = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(226, 232, 240, 0.85)';
-        const textColor = isDark ? '#cbd5e1' : '#334155';
-
-        let svg = `<svg width="${width}" height="${height}" class="overflow-visible">`;
-
-        // Y軸基準線（+100, +50, 0, -50, -100）
-        [100, 50, 0, -50, -100].forEach(val => {
-            const y = getY(val);
-            const isZero = val === 0;
-            svg += `
-                <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}"
-                      stroke="${isZero ? zeroLineColor : gridColor}"
-                      stroke-width="${isZero ? 1.6 : 1}"
-                      ${isZero ? 'stroke-dasharray="4 4"' : ''} />
-                <text x="${padLeft - 8}" y="${y + 3.5}" text-anchor="end" fill="${textColor}" font-size="10" font-family="JetBrains Mono, monospace" font-weight="600">
-                    ${val > 0 ? '+' + val : val}
-                </text>
-            `;
-        });
-
-        // X軸専用バー背景と垂直ガイドライン（番号軸の視認性強化）
-        const xAxisY = height - padBottom + 6;
-        svg += `
-            <rect x="${padLeft - 12}" y="${xAxisY}" width="${plotW + 24}" height="24" rx="8" fill="${axisBgColor}" stroke="${gridColor}" stroke-width="1" />
-        `;
-
-        allNumbers.forEach(num => {
-            const x = getX(num);
-            svg += `
-                <line x1="${x}" y1="${padTop}" x2="${x}" y2="${xAxisY}" stroke="${gridColor}" stroke-width="1" stroke-dasharray="2 3" />
-                <rect x="${x - 16}" y="${xAxisY + 3}" width="32" height="18" rx="5" fill="${isDark ? '#1e293b' : '#ffffff'}" stroke="${isDark ? '#00f0ff' : '#0284c7'}" stroke-width="1" />
-                <text x="${x}" y="${xAxisY + 15.5}" text-anchor="middle" fill="${isDark ? '#00f0ff' : '#0369a1'}" font-size="10.5" font-family="JetBrains Mono, monospace" font-weight="700">
-                    #${num}
-                </text>
-            `;
-        });
-
-        // 折れ線＆データポイント描画
-        seriesList.forEach(series => {
-            if (series.nodes.length >= 2) {
-                const points = series.nodes.map(n => `${getX(n.number)},${getY(n.emotion)}`).join(' ');
-                svg += `
-                    <polyline fill="none" stroke="${series.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${points}" style="filter: drop-shadow(0 0 6px ${series.color}88);" />
-                `;
-            }
-
-            series.nodes.forEach(n => {
-                const cx = getX(n.number);
-                const cy = getY(n.emotion);
-                const emoLabel = n.emotion > 0 ? `+${n.emotion}` : `${n.emotion}`;
-                svg += `
-                    <g class="cursor-pointer">
-                        <circle cx="${cx}" cy="${cy}" r="5.5" fill="${isDark ? '#060913' : '#ffffff'}" stroke="${series.color}" stroke-width="2.5" />
-                        <text x="${cx}" y="${cy - 9}" text-anchor="middle" fill="${series.color}" font-size="10" font-family="JetBrains Mono, monospace" font-weight="bold">
-                            ${emoLabel}
-                        </text>
-                        <title>#${n.number} (${series.label}) : ${n.content} [EMO: ${emoLabel}]</title>
-                    </g>
-                `;
-            });
-        });
-
-        // 凡例（右上）
-        let legendX = padLeft;
-        seriesList.forEach(series => {
-            svg += `
-                <g transform="translate(${legendX}, 6)">
-                    <rect x="0" y="0" width="10" height="10" rx="3" fill="${series.color}" />
-                    <text x="14" y="9" fill="${textColor}" font-size="10" font-weight="bold">${this.escapeHtml(series.label)}</text>
-                </g>
-            `;
-            legendX += series.label.length * 11 + 36;
-        });
-
-        svg += `</svg>`;
-        container.innerHTML = svg;
-    }
-
-    // ==================== ユーティリティ（モーダル・トースト・サニタイズ） ====================
-    openModal(innerHtml) {
-        const overlay = document.getElementById('modal-overlay');
-        const box = document.getElementById('modal-box');
-        box.innerHTML = innerHtml;
-        overlay.classList.remove('hidden');
-    }
-
-    closeModal() {
-        document.getElementById('modal-overlay').classList.add('hidden');
-    }
-
-    showToast(message, type = 'info') {
-        const container = document.getElementById('toast-container');
-        const el = document.createElement('div');
-        const borderClass = type === 'error' ? 'border-rose-500 text-rose-400' : 'border-cyan-500/60 text-cyan-300';
-        el.className = `px-4 py-2.5 rounded-xl bg-slate-900/95 border ${borderClass} shadow-xl text-xs font-bold flex items-center gap-2 backdrop-blur-md transition-all duration-300 transform translate-y-2 opacity-0`;
-        el.innerHTML = `
-            <i class="ph-fill ${type === 'error' ? 'ph-warning-circle text-rose-500' : 'ph-check-circle text-cyan-400'} text-base"></i>
-            <span>${this.escapeHtml(message)}</span>
-        `;
-        container.appendChild(el);
-
-        requestAnimationFrame(() => {
-            el.classList.remove('translate-y-2', 'opacity-0');
-        });
-
-        setTimeout(() => {
-            el.classList.add('opacity-0', 'translate-y-2');
-            setTimeout(() => el.remove(), 300);
-        }, 2600);
-    }
-
-    escapeHtml(str) {
-        if (str === null || str === undefined) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
+    return `
+        <div class="${breakClass}" style="margin-bottom: 24px;">
+            <h2 style="font-size: 15px; font-weight: bold; border-left: 4px solid #f59e0b; padding-left: 8px; margin-bottom: 12px;">白紙キャンバス配置図 ＆ プロット付箋一覧</h2>
+            ${mapSvg}
+            ${listHtml}
+        </div>
+    `;
 }
 
-// アプリ起動
-const app = new ChronoPlotApp();
+// PDF用エモーションレベルグラフSVG生成
+function buildPdfGraphSection(proj, breakClass) {
+    const seriesList = [];
+    seriesList.push({
+        label: '大筋',
+        color: proj.outlineColor || '#6366f1',
+        notes: proj.notes.filter(n => !n.hidden && n.targetId === 'outline').sort((a, b) => a.number - b.number)
+    });
+    const sortedChars = [...proj.characters].sort((a, b) => (a.number || 999) - (b.number || 999));
+    sortedChars.forEach(c => {
+        const cNotes = proj.notes.filter(n => !n.hidden && n.targetId === c.id).sort((a, b) => a.number - b.number);
+        if (cNotes.length > 0) {
+            seriesList.push({
+                label: getTargetLabel(proj, c.id),
+                color: c.color,
+                notes: cNotes
+            });
+        }
+    });
+
+    const allNumbers = [...new Set(seriesList.flatMap(s => s.notes.map(n => n.number)))].sort((a, b) => a - b);
+
+    if (allNumbers.length === 0) {
+        return `
+            <div class="${breakClass}" style="margin-bottom: 24px;">
+                <h2 style="font-size: 15px; font-weight: bold; border-left: 4px solid #8b5cf6; padding-left: 8px; margin-bottom: 12px;">エモーションレベルグラフ</h2>
+                <p style="font-size:12px; color:#64748b;">グラフ描画対象の付箋データがありません。</p>
+            </div>
+        `;
+    }
+
+    const width = 680;
+    const height = 220;
+    const padLeft = 40;
+    const padRight = 25;
+    const padTop = 20;
+    const padBottom = 30;
+    const plotW = width - padLeft - padRight;
+    const plotH = height - padTop - padBottom;
+
+    const getX = (num) => {
+        if (allNumbers.length === 1) return padLeft + plotW / 2;
+        return padLeft + (allNumbers.indexOf(num) / (allNumbers.length - 1)) * plotW;
+    };
+    const getY = (emo) => padTop + ((10 - emo) / 20) * plotH;
+
+    let svgBody = '';
+    [10, 5, 0, -5, -10].forEach(val => {
+        const y = getY(val);
+        svgBody += `<line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="${val === 0 ? '#64748b' : '#cbd5e1'}" stroke-dasharray="${val === 0 ? 'none' : '3 3'}" stroke-width="${val === 0 ? '1.5' : '1'}" />`;
+        svgBody += `<text x="${padLeft - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="#475569">${val > 0 ? '+' + val : val}</text>`;
+    });
+
+    allNumbers.forEach(num => {
+        const x = getX(num);
+        svgBody += `<text x="${x}" y="${height - 8}" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">#${num}</text>`;
+    });
+
+    seriesList.forEach(s => {
+        if (s.notes.length === 0) return;
+        const pts = s.notes.map(n => `${getX(n.number)},${getY(n.emotion || 0)}`).join(' ');
+        if (s.notes.length > 1) {
+            svgBody += `<polyline fill="none" stroke="${s.color}" stroke-width="2.5" points="${pts}" />`;
+        }
+        s.notes.forEach(n => {
+            svgBody += `<circle cx="${getX(n.number)}" cy="${getY(n.emotion || 0)}" r="4.5" fill="${s.color}" stroke="#ffffff" stroke-width="1.5" />`;
+        });
+    });
+
+    const legendHtml = seriesList.filter(s => s.notes.length > 0).map(s => `
+        <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; margin-right: 12px;">
+            <span style="display:inline-block; width:10px; height:10px; border-radius:99px; background:${s.color};"></span>
+            <strong>${escapeHtml(s.label)}</strong>
+        </span>
+    `).join('');
+
+    return `
+        <div class="${breakClass} pdf-avoid-break" style="margin-bottom: 24px;">
+            <h2 style="font-size: 15px; font-weight: bold; border-left: 4px solid #8b5cf6; padding-left: 8px; margin-bottom: 10px;">エモーションレベルグラフ</h2>
+            <div style="margin-bottom: 8px;">${legendHtml}</div>
+            <div style="border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px; background: #ffffff;">
+                <svg width="100%" viewBox="0 0 ${width} ${height}">${svgBody}</svg>
+            </div>
+        </div>
+    `;
+}
+
+// ==========================================
+// ユーティリティ
+// ==========================================
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
